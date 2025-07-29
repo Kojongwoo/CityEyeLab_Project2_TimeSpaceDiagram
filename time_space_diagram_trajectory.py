@@ -2,10 +2,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import time_space_diagram_trajectory as tsd
+tsd.df = df
 
-plt.rcParams['font.family'] = 'Malgun Gothic'
+plt.rcParams["font.family"] = "Malgun Gothic"
 
-file_path = "./intersection_info.xlsx"
+file_path = "./intersection_info.csv"
 df = pd.read_excel(file_path)
 order_col = "order_num"
 
@@ -15,6 +17,7 @@ df["green_end_time"] = df["green_start_time"] + df["green_duration_sec"]
 
 output_folder = "시공도_결과_tra"
 os.makedirs(output_folder, exist_ok=True)
+
 
 def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
     # 전체 경로 기반 궤적 계산용
@@ -70,23 +73,24 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
         sa = row["SA_num"]
         dirc = row["direction"]
 
-        for t in range(-2*cycle, end_time + 2*cycle, cycle):
+        for t in range(-2 * cycle, end_time + 2 * cycle, cycle):
             start = t + offset + green_start
             end = start + green_dur
             if end <= 0 or start >= end_time:
                 continue
-            plt.hlines(y=y, xmin=max(0, start), xmax=min(end_time, end),
-                       color='green', linewidth=2)
-            green_windows_data.append({
-                "intersection_name": intersec,
-                "direction": dirc,
-                "SA_num": sa,
-                # "green_start_time": max(0, start),
-                # "green_end_time": min(end_time, end),
-                "green_start_time": start,
-                "green_end_time": end,
-                "cycle": cycle
-            })
+            plt.hlines(y=y, xmin=max(0, start), xmax=min(end_time, end), color="green", linewidth=2)
+            green_windows_data.append(
+                {
+                    "intersection_name": intersec,
+                    "direction": dirc,
+                    "SA_num": sa,
+                    # "green_start_time": max(0, start),
+                    # "green_end_time": min(end_time, end),
+                    "green_start_time": start,
+                    "green_end_time": end,
+                    "cycle": cycle,
+                }
+            )
 
     # ✅ CSV 저장
     green_df = pd.DataFrame(green_windows_data)
@@ -98,7 +102,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
     # ✅ 궤적 생성
     trajectories = []
 
-    for veh_id in range(1, end_time + 1, 10):
+    for veh_id in range(1, end_time + 1, 53):
         t = veh_id
         log = []
         curr_pos = filtered_all.iloc[0]["cumulative_distance"]
@@ -113,21 +117,26 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
             travel_time = dist / speed
             arrival = t + travel_time
 
+            # 이동 구간 기록은 신호 상태와 무관하게 먼저 저장한다.
+            log.append((t, curr_pos, arrival, next_pos, intersec))
+            t = arrival
+            curr_pos = next_pos
+
             green_ok = green_df[
-                (green_df["intersection_name"] == intersec) &
-                (green_df["green_start_time"] <= arrival + 1e-3) &
-                (green_df["green_end_time"] >= arrival - 1e-3)
+                (green_df["intersection_name"] == intersec)
+                & (green_df["green_start_time"] <= arrival + 1e-3)
+                & (green_df["green_end_time"] >= arrival - 1e-3)
             ]
 
-            if not green_ok.empty:
-                # 이동
-                log.append((t, curr_pos, arrival, next_pos, intersec))
-                t = arrival
-                curr_pos = next_pos
-            else:
+            # if not green_ok.empty:
+            #     # 이동
+            #     log.append((t, curr_pos, arrival, next_pos, intersec))
+            #     t = arrival
+            #     curr_pos = next_pos
+            # else:
+            if green_ok.empty:  
                 future_green = green_df[
-                    (green_df["intersection_name"] == intersec) &
-                    (green_df["green_start_time"] >= arrival - 5)
+                    (green_df["intersection_name"] == intersec) & (green_df["green_start_time"] >= arrival - 5)
                 ].sort_values("green_start_time")
 
                 if future_green.empty:
@@ -138,17 +147,19 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
 
                 # ✅ 수평선 구간: 대기
                 for sec in range(int(wait_start), int(wait_end) + 1):
-                    trajectories.append({
-                        "vehicle_id": veh_id,
-                        "time": sec,
-                        "position": round(next_pos, 2),
-                        "speed": 0,
-                        "intersection": intersec
-                    })
+                    trajectories.append(
+                        {
+                            "vehicle_id": veh_id,
+                            "time": sec,
+                            "position": round(next_pos, 2),
+                            "speed": 0,
+                            "intersection": intersec,
+                        }
+                    )
 
-                # 통과
+                # 통과 후 현재 시간 갱신
                 t = wait_end
-                curr_pos = next_pos
+                # curr_pos = next_pos
 
         # ✅ 이동 구간 보간
         for t0, p0, t1, p1, intersec in log:
@@ -156,43 +167,15 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
             for sec in range(int(t0), int(t1) + 1):
                 frac = (sec - t0) / total_time
                 pos = p0 + (p1 - p0) * frac
-                trajectories.append({
-                    "vehicle_id": veh_id,
-                    "time": sec,
-                    "position": round(pos, 2),
-                    "speed": round((pos - p0) / total_time, 2),
-                    "intersection": intersec
-                })
-
-        # # 궤적 보간
-        # for j in range(len(log)):
-        #     curr = log[j]
-        #     prev_time = int(log[j - 1]["time"]) if j > 0 else veh_id
-        #     prev_pos = log[j - 1]["position"] if j > 0 else 0
-
-        #     # ✅ 수직선 방지용: 같은 위치에서 시간만 다른 경우 skip
-        #     if j > 0 and curr["position"] == prev_pos:
-        #         continue
-
-        #     total_time = max(1, curr["time"] - prev_time)
-        #     total_dist = curr["position"] - prev_pos
-
-        #     for sec in range(prev_time, int(curr["time"]) + 1):
-        #         frac = (sec - prev_time) / total_time
-        #         pos = prev_pos + total_dist * frac
-        #         if len(trajectories) > 0 and trajectories[-1]["vehicle_id"] == curr["vehicle_id"]:
-        #             last_pos = trajectories[-1]["position"]
-        #             speed = round(pos - last_pos, 2)
-        #         else:
-        #             speed = 0
-
-        #         trajectories.append({
-        #             "vehicle_id": curr["vehicle_id"],
-        #             "time": sec,
-        #             "position": round(pos, 2),
-        #             "speed": speed,
-        #             "intersection": curr["intersection"]
-        #         })
+                trajectories.append(
+                    {
+                        "vehicle_id": veh_id,
+                        "time": sec,
+                        "position": round(pos, 2),
+                        "speed": round((pos - p0) / total_time, 2),
+                        "intersection": intersec,
+                    }
+                )
 
     # ✅ CSV 저장
     traj_df = pd.DataFrame(trajectories)
@@ -217,10 +200,9 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
             linewidth=1,
             alpha=0.6,
             # ✅ 밖에 나간 구간은 안 보이게 처리
-            solid_capstyle='round',
-            clip_on=True
+            solid_capstyle="round",
+            clip_on=True,
         )
-
 
     # 기본 설정
     plt.xlim(0, end_time + 10)
@@ -244,12 +226,12 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
     plt.tight_layout()
 
     full_path = os.path.join(output_folder, filename)
-    plt.savefig(full_path, dpi=300, bbox_inches='tight')
+    plt.savefig(full_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"✅ 시공도 + 궤적 저장 완료: {full_path}")
 
 # ✅ 실행 예시
 draw_time_space_diagram("서동", "시공도_서동_전체_tra.png", end_time=3600)
 draw_time_space_diagram("동서", "시공도_동서_전체_tra.png", end_time=3600)
-draw_time_space_diagram("서동", "시공도_서동_SA26_tra.png", sa_num=26, end_time=450)
-draw_time_space_diagram("동서", "시공도_동서_SA26_tra.png", sa_num=26, end_time=450)
+draw_time_space_diagram("서동", "시공도_서동_SA26_tra.png", sa_num=26, end_time=400)
+draw_time_space_diagram("동서", "시공도_동서_SA26_tra.png", sa_num=26, end_time=400)

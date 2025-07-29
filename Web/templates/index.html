@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>교차로 시공도 생성</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h2>교차로 정보 입력</h2>
+  <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
+    <form id="form">
+      <div id="hot"></div>
+      방향: <input type="text" id="direction" value="서동">
+      SA_num (선택): <input type="number" id="sa_num">
+      종료 시간 (초): <input type="number" id="end_time" value="1800">
+      <button type="submit">시공도 생성</button>
+    </form>
+    <div id="result">
+      {% if image_url %}
+        <h2>결과 시공도</h2>
+        <img src="{{ image_url }}" width="800">
+      {% endif %}
+    </div>
+    
+    <script>
+      let hot;
+      document.addEventListener("DOMContentLoaded", function() {
+        const container = document.getElementById('hot');
+
+        hot = new Handsontable(container, {
+          data: [],
+          minSpareRows: 1,
+          minRows: 20,
+          viewportRowRenderingOffset: 20,
+          rowHeaders: true,
+          width: '100%',
+          height: 500,
+          stretchH: 'all',            // ✅ 열 너비 자동 확장
+          manualRowResize: true,      // ✅ 행 크기 수동 조절 가능
+          contextMenu: true,
+          copyPaste: {
+            enabled: true,
+            pasteMode: 'shift_down',
+            columnsLimit:0,
+            rowsLimit:0
+          },
+          allowHtml: false,
+          trimWhitespace: true,
+          licenseKey: 'non-commercial-and-evaluation'
+        });
+
+        document.getElementById('FileInput').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const fileName = file.name.toLowerCase();
+      
+          if (fileName.endsWith('.xlsx')) {
+            const reader = new FileReader();
+            reader.onload = function (event) {
+              const data = new Uint8Array(event.target.result);
+              const workbook = XLSX.read(data, { type: 'array' });
+
+              const firstSheetName = workbook.SheetNames[0];
+              const sheet = workbook.Sheets[firstSheetName];
+
+              const rows = XLSX.utils.sheet_to_json(sheet, {
+                header: 1,
+                raw: true // ✅ 서식 제거해서 원본 숫자 유지
+              });
+
+              if (rows.length === 0) return;
+
+              const headers = rows[0];  // ✅ 엑셀 첫 줄을 Handsontable colHeaders로 사용
+              const expectedCols = headers.length;
+
+              // ✅ 헤더 제거 + 빈 행 제거
+              const cleaned = rows.slice(1)
+                .filter(row => row.some(cell => String(cell ?? "").trim() !== ""))
+                .map(row => {
+                  while (row.length < expectedCols) row.push("");
+                  return row;
+                })
+              hot.updateSettings({
+                data: cleaned,
+                colHeaders: headers
+              });
+              hot.loadData(cleaned);
+            };
+            reader.readAsArrayBuffer(file);
+          }
+        });
+      });
+    </script>
+</body>
+</html>
