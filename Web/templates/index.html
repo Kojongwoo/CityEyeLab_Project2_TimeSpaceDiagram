@@ -5,33 +5,102 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+   body {
+    font-family: 'Noto Sans KR', sans-serif;
+    margin: 20px;
+    background-color: #f4f4f4;
+    text-align: center;
+   }
+   h2 {
+    color: #333;
+    margin-bottom: 15px;
+   }
+   #file-upload-section, #input-section, #result {
+    background-color: #fff;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+   }
+   label {
+    display: inline-block;
+    width: 120px;
+    margin-bottom: 10px;
+    font-weight: bold;
+   }
+   input#FileInput, input#direction, input#sa_num, input#end_time {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 150px;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+   }
+   button {
+    background-color: #5cb85c;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+   }
+   button:hover {
+    background-color: #4cae4c;
+   }
+   #hot-container {
+    margin-bottom: 20px;
+   }
+   #result-image-container {
+    margin-top: 20px;
+    text-align: center;
+   }
+   #result-image-container img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+   }    
+  </style>
 </head>
+
 <body>
   <h2>교차로 정보 입력</h2>
-  <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
-    <form id="form">
+  <div>
+    <label for="FileInput">🗂️ 파일 업로드 (CSV 또는 Excel)</label><br>
+    <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
+  </div>
+    <form id="form" action="/generate" method="post">
       <div id="hot"></div>
-      방향: <input type="text" id="direction" value="서동">
+      방향: <input type="text" id="direction">
       SA_num (선택): <input type="number" id="sa_num">
-      종료 시간 (초): <input type="number" id="end_time" value="1800">
+      종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
+      <button id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
     </form>
     <div id="result">
-      {% if image_url %}
-        <h2>결과 시공도</h2>
-        <img src="{{ image_url }}" width="800">
-      {% endif %}
+        <div id="loading" style="display:none;">
+        <p>시공도 생성 중입니다...</p>
+        <img src="/static/loading.gif" alt="로딩 중" width="50">
+      </div>
+      <div id="image-result">
+        {% if image_url %}
+          <h2>결과 시공도</h2>
+          <img src="{{ image_url }}" width="800">
+        {% endif %}
+      </div>
     </div>
-    
     <script>
       let hot;
+      document.getElementById("image-result").innerHTML = "";
       document.addEventListener("DOMContentLoaded", function() {
         const container = document.getElementById('hot');
 
         hot = new Handsontable(container, {
           data: [],
-          minSpareRows: 1,
-          minRows: 20,
+          minSpareRows: 0,
+          minRows: 0,
           viewportRowRenderingOffset: 20,
           rowHeaders: true,
           width: '100%',
@@ -56,7 +125,7 @@
 
           const fileName = file.name.toLowerCase();
       
-          if (fileName.endsWith('.xlsx')) {
+          if (fileName.endsWith('.xlsx') | fileName.endsWith('.csv')) {
             const reader = new FileReader();
             reader.onload = function (event) {
               const data = new Uint8Array(event.target.result);
@@ -86,12 +155,84 @@
                 data: cleaned,
                 colHeaders: headers
               });
-              hot.loadData(cleaned);
+              // hot.loadData(cleaned);
             };
             reader.readAsArrayBuffer(file);
           }
         });
-      });
+        
+        document.getElementById("form").addEventListener("submit", function(e) {
+          e.preventDefault();
+
+          document.getElementById("loading").style.display = "block";
+
+          const data = hot.getData();
+          const direction = document.getElementById("direction").value;
+          const sa_num = document.getElementById("sa_num").value;
+          const end_time = document.getElementById("end_time").value;
+
+          const payload = {
+            data: data,
+            direction: direction,
+            sa_num: sa_num,
+            end_time: end_time
+          };
+
+          fetch("/generate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+          })
+          .then(res => res.json())
+          .then(json => {
+            document.getElementById("loading").style.display = "none";
+
+              const imgTag = `
+                <h2>결과 시공도</h2>
+                <img src="${json.image_url}" width="800">
+              `;
+              document.getElementById("image-result").innerHTML = imgTag;
+            })
+            .catch(err => {
+              document.getElementById("loading").style.display = "none";
+              alert("❌ 시공도 생성 중 오류가 발생했습니다.");
+              console.error(err);
+            });
+        });
+
+          document.getElementById("saveExcelBtn").addEventListener("click", function() {
+            const data = hot.getData();
+            const headers = hot.getColHeader();
+
+            // 2차원 배열 → 객체 배열 변환
+            const rows = data.map(row => {
+              const obj = {};
+              headers.forEach((key, idx) => obj[key] = row[idx]);
+              return obj;
+            });
+
+            fetch("/save_excel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ rows: rows })
+            })
+            .then(res => res.blob())
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "수정된_교차로정보.xlsx";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            });
+          });
+        });
     </script>
 </body>
+<footer style="margin-top: 50px; color: #0f0f0f; font-size: 14px;">
+  ⓒ 2025 CityeyeLab. 교차로 시공도 분석 도구.
+</footer>
 </html>

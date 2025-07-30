@@ -1,11 +1,7 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html>
 <head>
   <title>교차로 시공도 생성</title>
-  <style>
-    table, th, td { border: 1px solid black; border-collapse: collapse; padding: 4px; }
-  </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -13,7 +9,7 @@
 <body>
   <h2>교차로 정보 입력</h2>
   <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
-    <form id="form">
+    <form id="form" action="/generate" method="post">
       <div id="hot"></div>
       방향: <input type="text" id="direction" value="서동">
       SA_num (선택): <input type="number" id="sa_num">
@@ -33,21 +29,10 @@
         const container = document.getElementById('hot');
 
         hot = new Handsontable(container, {
-        // data: Array(5).fill().map(() => Array(13).fill("")),
           data: [],
-          minSpareRows: 1,
-          minRows: 20,
+          minSpareRows: 0,
+          minRows: 0,
           viewportRowRenderingOffset: 20,
-          colHeaders: [
-            "street_name", "order_num", "SA_num", "intersection_id", "intersection_name",
-            "direction", "distance_from_prev_meter", "time_plan", "cycle_length_sec",
-            "green_start_sec", "green_duration_sec", "offset_sec", "speed_limit_kph"
-          ],
-          columns: [
-            {}, {type: 'numeric'}, {type: 'numeric'}, {}, {}, {},
-            {type: 'numeric'}, {}, {type: 'numeric'}, {type: 'numeric'},
-            {type: 'numeric'}, {type: 'numeric'}, {type: 'numeric'}
-          ],
           rowHeaders: true,
           width: '100%',
           height: 500,
@@ -70,24 +55,8 @@
           if (!file) return;
 
           const fileName = file.name.toLowerCase();
-
-          if (fileName.endsWith('.csv')) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-              const text = event.target.result;
-              const rows = text.trim().split('\n').map(row => row.split(','));
-
-              // 첫 줄이 헤더인지 확인하고 제거 (Handsontable은 헤더를 별도로 지정했으므로)
-              if (rows.length > 1 && rows[0][0] === "street_name") {
-                rows.shift();
-              }
-
-              hot.loadData(rows); // ✅ 표에 데이터 로딩
-            };
-            reader.readAsText(file);
-          }
       
-          else if (fileName.endsWith('.xlsx')) {
+          if (fileName.endsWith('.xlsx')) {
             const reader = new FileReader();
             reader.onload = function (event) {
               const data = new Uint8Array(event.target.result);
@@ -101,14 +70,56 @@
                 raw: true // ✅ 서식 제거해서 원본 숫자 유지
               });
 
+              if (rows.length === 0) return;
+
+              const headers = rows[0];  // ✅ 엑셀 첫 줄을 Handsontable colHeaders로 사용
+              const expectedCols = headers.length;
+
               // ✅ 헤더 제거 + 빈 행 제거
-              const cleaned = rows.slice(1).filter(
-                row => row.some(cell => String(cell ?? "").trim() !== "")
-              );
-              hot.loadData(cleaned);
+              const cleaned = rows.slice(1)
+                .filter(row => row.some(cell => String(cell ?? "").trim() !== ""))
+                .map(row => {
+                  while (row.length < expectedCols) row.push("");
+                  return row;
+                })
+              hot.updateSettings({
+                data: cleaned,
+                colHeaders: headers
+              });
+              // hot.loadData(cleaned);
             };
             reader.readAsArrayBuffer(file);
           }
+        });
+        
+        document.getElementById("form").addEventListener("submit", function(e) {
+          e.preventDefault();
+
+          const data = hot.getData();
+
+          const direction = document.getElementById("direction").value;
+          const sa_num = document.getElementById("sa_num").value;
+          const end_time = document.getElementById("end_time").value;
+
+          const payload = {
+            data: data,
+            direction: direction,
+            sa_num: sa_num,
+            end_time: end_time
+          };
+
+          fetch("/generate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+          })
+          .then(res => res.json())
+          .then(json => {
+            const imgTag = `<h2>결과 시공도</h2><img src="${json.image_url}" width="800">`;
+            document.getElementById("result").innerHTML = imgTag;
+          });
         });
       });
     </script>

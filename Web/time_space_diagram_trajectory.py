@@ -5,19 +5,24 @@ import os
 
 plt.rcParams["font.family"] = "Malgun Gothic"
 
-file_path = "./intersection_info.csv"
-df = pd.read_excel(file_path)
+# file_path = "./intersection_info.csv"
+# df = pd.read_excel(file_path)
+df = None
 order_col = "order_num"
 
-df["speed_mps"] = df["speed_limit_kph"] / 3.6
-df["green_start_time"] = df["offset_sec"] + df["green_start_sec"]
-df["green_end_time"] = df["green_start_time"] + df["green_duration_sec"]
 
-output_folder = "시공도_결과_tra"
+
+output_folder = "static/output"
 os.makedirs(output_folder, exist_ok=True)
 
 
-def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
+def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, with_trajectory=True):
+
+    global df
+
+    df["speed_mps"] = df["speed_limit_kph"] / 3.6
+    df["green_start_time"] = df["offset_sec"] + df["green_start_sec"]
+    df["green_end_time"] = df["green_start_time"] + df["green_duration_sec"]
     # 전체 경로 기반 궤적 계산용
     filtered_all = df[df["direction"] == direction].copy()
     filtered_all = filtered_all.sort_values(order_col)
@@ -229,7 +234,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800):
     print(f"✅ 시공도 + 궤적 저장 완료: {full_path}")
 
 # ✅ 실행 예시
-draw_time_space_diagram("서동", "시공도_서동_전체_tra.png", end_time=3600)
-draw_time_space_diagram("동서", "시공도_동서_전체_tra.png", end_time=3600)
-draw_time_space_diagram("서동", "시공도_서동_SA26_tra.png", sa_num=26, end_time=400)
-draw_time_space_diagram("동서", "시공도_동서_SA26_tra.png", sa_num=26, end_time=400)
+# draw_time_space_diagram("서동", "시공도_서동_전체_tra.png", end_time=3600)
+# draw_time_space_diagram("동서", "시공도_동서_전체_tra.png", end_time=3600)
+# draw_time_space_diagram("서동", "시공도_서동_SA26_tra.png", sa_num=26, end_time=400)
+# draw_time_space_diagram("동서", "시공도_동서_SA26_tra.png", sa_num=26, end_time=400)
