@@ -1,0 +1,23 @@
+{
+  "name": "TimeSpaceDiagram",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --config webpack.config.js", 
+    "start": "python app.py"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "handsontable": "^13.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "css-loader": "^6.x.x",
+    "style-loader": "^3.x.x",
+    "webpack": "^5.x.x",
+    "webpack-cli": "^4.x.x"
+  }
+}

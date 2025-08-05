@@ -2,10 +2,9 @@
 <html>
 <head>
   <title>교차로 시공도 생성</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
-  <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
+   /* 기존 CSS 내용은 그대로 유지 */
    body {
     font-family: 'Noto Sans KR', sans-serif;
     margin: 20px;
@@ -61,7 +60,7 @@
     height: auto;
     border: 1px solid #ddd;
     border-radius: 4px;
-   }    
+   }
   </style>
 </head>
 
@@ -77,7 +76,7 @@
       SA_num (선택): <input type="number" id="sa_num">
       종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
-      <button id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
+      <button type="button" id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
     </form>
     <div id="result">
         <div id="loading" style="display:none;">
@@ -91,146 +90,7 @@
         {% endif %}
       </div>
     </div>
-    <script>
-      let hot;
-      document.getElementById("image-result").innerHTML = "";
-      document.addEventListener("DOMContentLoaded", function() {
-        const container = document.getElementById('hot');
-
-        hot = new Handsontable(container, {
-          data: [],
-          minSpareRows: 0,
-          minRows: 0,
-          viewportRowRenderingOffset: 20,
-          rowHeaders: true,
-          width: '100%',
-          height: 500,
-          stretchH: 'all',            // ✅ 열 너비 자동 확장
-          manualRowResize: true,      // ✅ 행 크기 수동 조절 가능
-          contextMenu: true,
-          copyPaste: {
-            enabled: true,
-            pasteMode: 'shift_down',
-            columnsLimit:0,
-            rowsLimit:0
-          },
-          allowHtml: false,
-          trimWhitespace: true,
-          licenseKey: 'non-commercial-and-evaluation'
-        });
-
-        document.getElementById('FileInput').addEventListener('change', function(e) {
-          const file = e.target.files[0];
-          if (!file) return;
-
-          const fileName = file.name.toLowerCase();
-      
-          if (fileName.endsWith('.xlsx') | fileName.endsWith('.csv')) {
-            const reader = new FileReader();
-            reader.onload = function (event) {
-              const data = new Uint8Array(event.target.result);
-              const workbook = XLSX.read(data, { type: 'array' });
-
-              const firstSheetName = workbook.SheetNames[0];
-              const sheet = workbook.Sheets[firstSheetName];
-
-              const rows = XLSX.utils.sheet_to_json(sheet, {
-                header: 1,
-                raw: true // ✅ 서식 제거해서 원본 숫자 유지
-              });
-
-              if (rows.length === 0) return;
-
-              const headers = rows[0];  // ✅ 엑셀 첫 줄을 Handsontable colHeaders로 사용
-              const expectedCols = headers.length;
-
-              // ✅ 헤더 제거 + 빈 행 제거
-              const cleaned = rows.slice(1)
-                .filter(row => row.some(cell => String(cell ?? "").trim() !== ""))
-                .map(row => {
-                  while (row.length < expectedCols) row.push("");
-                  return row;
-                })
-              hot.updateSettings({
-                data: cleaned,
-                colHeaders: headers
-              });
-              // hot.loadData(cleaned);
-            };
-            reader.readAsArrayBuffer(file);
-          }
-        });
-        
-        document.getElementById("form").addEventListener("submit", function(e) {
-          e.preventDefault();
-
-          document.getElementById("loading").style.display = "block";
-
-          const data = hot.getData();
-          const direction = document.getElementById("direction").value;
-          const sa_num = document.getElementById("sa_num").value;
-          const end_time = document.getElementById("end_time").value;
-
-          const payload = {
-            data: data,
-            direction: direction,
-            sa_num: sa_num,
-            end_time: end_time
-          };
-
-          fetch("/generate", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-          })
-          .then(res => res.json())
-          .then(json => {
-            document.getElementById("loading").style.display = "none";
-
-              const imgTag = `
-                <h2>결과 시공도</h2>
-                <img src="${json.image_url}" width="800">
-              `;
-              document.getElementById("image-result").innerHTML = imgTag;
-            })
-            .catch(err => {
-              document.getElementById("loading").style.display = "none";
-              alert("❌ 시공도 생성 중 오류가 발생했습니다.");
-              console.error(err);
-            });
-        });
-
-          document.getElementById("saveExcelBtn").addEventListener("click", function() {
-            const data = hot.getData();
-            const headers = hot.getColHeader();
-
-            // 2차원 배열 → 객체 배열 변환
-            const rows = data.map(row => {
-              const obj = {};
-              headers.forEach((key, idx) => obj[key] = row[idx]);
-              return obj;
-            });
-
-            fetch("/save_excel", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ rows: rows })
-            })
-            .then(res => res.blob())
-            .then(blob => {
-              const url = window.URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = "수정된_교차로정보.xlsx";
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-            });
-          });
-        });
-    </script>
+    <script src="dist/bundle.js"></script>
 </body>
 <footer style="margin-top: 50px; color: #0f0f0f; font-size: 14px;">
   ⓒ 2025 CityeyeLab. 교차로 시공도 분석 도구.

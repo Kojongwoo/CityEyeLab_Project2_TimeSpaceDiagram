@@ -10,9 +10,8 @@ plt.rcParams["font.family"] = "Malgun Gothic"
 df = None
 order_col = "order_num"
 
-
-
-output_folder = "static/output"
+# output_folder = "static/output"
+output_folder = os.path.join("Web", "static", "output")
 os.makedirs(output_folder, exist_ok=True)
 
 

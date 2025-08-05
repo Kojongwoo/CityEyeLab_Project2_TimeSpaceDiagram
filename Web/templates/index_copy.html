@@ -3,51 +3,127 @@
 <head>
   <title>교차로 시공도 생성</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
-  <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script> -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/plugins/copyPaste/copyPaste.js"></script> -->
+  <style>
+   body {
+    font-family: 'Noto Sans KR', sans-serif;
+    margin: 20px;
+    background-color: #f4f4f4;
+    text-align: center;
+   }
+   h2 {
+    color: #333;
+    margin-bottom: 15px;
+   }
+   #file-upload-section, #input-section, #result {
+    background-color: #fff;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+   }
+   label {
+    display: inline-block;
+    width: 120px;
+    margin-bottom: 10px;
+    font-weight: bold;
+   }
+   input#FileInput, input#direction, input#sa_num, input#end_time {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 150px;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+   }
+   button {
+    background-color: #5cb85c;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+   }
+   button:hover {
+    background-color: #4cae4c;
+   }
+   #hot-container {
+    margin-bottom: 20px;
+   }
+   #result-image-container {
+    margin-top: 20px;
+    text-align: center;
+   }
+   #result-image-container img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+   }    
+  </style>
 </head>
+
 <body>
   <h2>교차로 정보 입력</h2>
-  <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
+  <div>
+    <label for="FileInput">🗂️ 파일 업로드 (CSV 또는 Excel)</label><br>
+    <input type="file" id="FileInput" accept=".csv, .xlsx"><br><br>
+  </div>
     <form id="form" action="/generate" method="post">
       <div id="hot"></div>
-      방향: <input type="text" id="direction" value="서동">
+      방향: <input type="text" id="direction">
       SA_num (선택): <input type="number" id="sa_num">
-      종료 시간 (초): <input type="number" id="end_time" value="1800">
+      종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
+      <button type="button" id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
     </form>
     <div id="result">
-      {% if image_url %}
-        <h2>결과 시공도</h2>
-        <img src="{{ image_url }}" width="800">
-      {% endif %}
+        <div id="loading" style="display:none;">
+        <p>시공도 생성 중입니다...</p>
+        <img src="/static/loading.gif" alt="로딩 중" width="50">
+      </div>
+      <div id="image-result">
+        {% if image_url %}
+          <h2>결과 시공도</h2>
+          <img src="{{ image_url }}" width="800">
+        {% endif %}
+      </div>
     </div>
-    
     <script>
       let hot;
+      document.getElementById("image-result").innerHTML = "";
       document.addEventListener("DOMContentLoaded", function() {
         const container = document.getElementById('hot');
 
         hot = new Handsontable(container, {
           data: [],
-          minSpareRows: 0,
-          minRows: 0,
-          viewportRowRenderingOffset: 20,
           rowHeaders: true,
+          colHeaders: true,
           width: '100%',
           height: 500,
-          stretchH: 'all',            // ✅ 열 너비 자동 확장
           manualRowResize: true,      // ✅ 행 크기 수동 조절 가능
+          stretchH: 'all',            // ✅ 열 너비 자동 확장
+          copyPaste: true,
+          fragmentSelection: true,            // 복수 셀 클립보드 복사 허용
           contextMenu: true,
-          copyPaste: {
-            enabled: true,
-            pasteMode: 'shift_down',
-            columnsLimit:0,
-            rowsLimit:0
-          },
-          allowHtml: false,
+          licenseKey: 'non-commercial-and-evaluation',
+          minSpareRows: 1,
+          minRows: 0,
+          viewportRowRenderingOffset: 20,
+          allowInsertRow: true,
+          // allowHtml: true,
           trimWhitespace: true,
-          licenseKey: 'non-commercial-and-evaluation'
+          outsideClickDeselects: false,       // 외부 클릭해도 셀 선택 유지
+          pasteMode: 'overwrite', // ✅ 이 부분을 추가하거나 'shift_down' 등으로 변경하며 테스트
+          beforePaste: function(data, coords) {
+            console.log("--- beforePaste 훅 실행 ---");
+            console.log("클립보드 데이터 (원본):", data); // [["cell1\tcell2"], ["cell3\tcell4"]]와 같은 형태를 기대
+            console.log("붙여넣을 시작 셀 (좌표):", coords);
+            console.log("------------------------");
+          }
         });
 
         document.getElementById('FileInput').addEventListener('change', function(e) {
@@ -56,7 +132,7 @@
 
           const fileName = file.name.toLowerCase();
       
-          if (fileName.endsWith('.xlsx')) {
+          if (fileName.endsWith('.xlsx') | fileName.endsWith('.csv')) {
             const reader = new FileReader();
             reader.onload = function (event) {
               const data = new Uint8Array(event.target.result);
@@ -84,9 +160,8 @@
                 })
               hot.updateSettings({
                 data: cleaned,
-                colHeaders: headers
+                colHeaders: headers,
               });
-              // hot.loadData(cleaned);
             };
             reader.readAsArrayBuffer(file);
           }
@@ -95,12 +170,29 @@
         document.getElementById("form").addEventListener("submit", function(e) {
           e.preventDefault();
 
+          const direction = document.getElementById("direction").value.trim();
+          const sa_num = document.getElementById("sa_num").value.trim();
+          const end_time = document.getElementById("end_time").value.trim();
+
+          if (!direction) {
+            alert("⚠️ 방향 값을 입력하세요.");
+            return;
+          }
+
+          if (!sa_num || isNaN(sa_num)) {
+            alert("⚠️ 유효한 SA_num 값을 입력하세요.");
+            return;
+          }
+
+          if (!end_time || isNaN(end_time) || Number(end_time) <= 0) {
+            alert("⚠️ 유효한 종료 시간을 입력하세요.");
+            return;
+          }
+          
+          document.getElementById("loading").style.display = "block";
+
           const data = hot.getData();
-
-          const direction = document.getElementById("direction").value;
-          const sa_num = document.getElementById("sa_num").value;
-          const end_time = document.getElementById("end_time").value;
-
+          
           const payload = {
             data: data,
             direction: direction,
@@ -117,11 +209,57 @@
           })
           .then(res => res.json())
           .then(json => {
-            const imgTag = `<h2>결과 시공도</h2><img src="${json.image_url}" width="800">`;
-            document.getElementById("result").innerHTML = imgTag;
+            document.getElementById("loading").style.display = "none";
+
+            const imgTag = `
+              <h2>결과 시공도</h2>
+              <img src="${json.image_url}" width="800">
+            `;
+              document.getElementById("image-result").innerHTML = imgTag;
+          })
+          .catch(err => {
+            document.getElementById("loading").style.display = "none";
+            alert("❌ 시공도 생성 중 오류가 발생했습니다.");
+            console.error(err);
+          });
+        });
+
+        document.getElementById("saveExcelBtn").addEventListener("click", function(e) {
+          e.preventDefault();
+
+          const data = hot.getData();
+          const headers = hot.getColHeader();
+          const direction = document.getElementById("direction").value.trim();
+          const sa_num = document.getElementById("sa_num").value.trim();
+          const end_time = document.getElementById("end_time").value.trim();
+
+          // 2차원 배열 → 객체 배열 변환
+          const rows = data.map(row => {
+          const obj = {};
+          headers.forEach((key, idx) => obj[key] = row[idx]);
+            return obj;
+          });
+
+          fetch("/save_excel_csv", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rows: rows,
+              headers: headers,
+              direction: direction,
+              sa_num: sa_num,
+              end_time: end_time
+            })
+          })
+          .then(res => res.json())
+          .then(json => {
+            alert("✅ CSV 파일 저장 완료!\n경로: " + json.path);
           });
         });
       });
     </script>
 </body>
+<footer style="margin-top: 50px; color: #0f0f0f; font-size: 14px;">
+  ⓒ 2025 CityeyeLab. 교차로 시공도 분석 도구.
+</footer>
 </html>
