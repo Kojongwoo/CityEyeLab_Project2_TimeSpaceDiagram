@@ -83,17 +83,18 @@
         <p>시공도 생성 중입니다...</p>
         <img src="/static/loading.gif" alt="로딩 중" width="50">
       </div>
+      <h2>🎯 Canvas 시공도</h2>
     </form>
     <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
     <br>
     <!-- <button type="button" onclick="drawCanvasFromCsv()" style="background-color: #337ab7; color: white; margin-top: 10px;"> -->
-      🎯 Canvas 시공도 보기
+      
     </button>
     <div id="result">
 
       <div id="image-result">
         {% if image_url %}
-          <h2>결과 시공도</h2>
+          <h2>Matplotlib 시공도</h2>
           <img src="{{ image_url }}" width="800">
         {% endif %}
       </div>

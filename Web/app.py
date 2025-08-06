@@ -5,7 +5,7 @@ from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
 # 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
-# 수정 후 npx webpack --mode=development
+# js 수정 후 npx webpack --mode=development
 
 # Webpack 빌드 결과물(bundle.js)을 Flask가 서빙할 수 있도록 설정
 app = Flask(__name__, static_folder='static', static_url_path='/static')

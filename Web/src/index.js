@@ -139,7 +139,7 @@ document.addEventListener("DOMContentLoaded", function() {
       // json.image_url이 존재하지 않을 경우의 예외 처리 추가
       if (json.image_url) {
         const imgTag = `
-          <h2>결과 시공도</h2>
+          <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
           <img src="${json.image_url}" width="800">
         `;
         document.getElementById("image-result").innerHTML = imgTag;
@@ -258,6 +258,10 @@ function drawOnCanvas(trajectory, green_windows, end_time) {
   const plotLeft = leftMargin, plotRight = canvas.width - rightMargin;
   const plotTop = topMargin, plotBottom = canvas.height - bottomMargin;
   const plotWidth = plotRight - plotLeft, plotHeight = plotBottom - plotTop;
+  const x_axis = plotLeft + 0.5;
+
+  // *** 이 부분에 로그 추가 ***
+  console.log("plotLeft:", plotLeft, "convertX(0):", convertX(0), "plotRight:", plotRight);
 
   // (1) Y축: 전체 위치 데이터에서 min/max 찾기
   let minPos = Infinity, maxPos = -Infinity;
@@ -304,10 +308,15 @@ function drawOnCanvas(trajectory, green_windows, end_time) {
   // (3) 신호등 선
   green_windows.forEach(row => {
     const y = convertY(parseFloat(row.cumulative_distance ?? row.position ?? 0));
-    let x1 = convertX(parseFloat(row.green_start_time));
-    let x2 = convertX(parseFloat(row.green_end_time));
-    x1 = Math.max(plotLeft, x1); // 왼쪽 네모밖 차단
-    x2 = Math.min(plotRight, x2); // 오른쪽 네모밖 차단
+    let greenStart = parseFloat(row.green_start_time);
+    let greenEnd = parseFloat(row.green_end_time);
+    if (greenStart < 0) greenStart = 0;  // x=0 이하 막대 시작점 보정
+    let x1 = convertX(greenStart);
+    if (greenStart === 0) x1 = x_axis; // 강제로 x_axis로 붙임!
+    let x2 = convertX(greenEnd);
+    x1 = Math.max(x_axis, x1);
+    x2 = Math.min(plotRight, x2);
+
     ctx.strokeStyle = "green";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -345,7 +354,7 @@ function drawOnCanvas(trajectory, green_windows, end_time) {
   ctx.stroke();
   // x축선
   ctx.beginPath();
-  ctx.moveTo(plotLeft, plotBottom);
+  ctx.moveTo(x_axis, plotBottom);
   ctx.lineTo(plotRight, plotBottom);
   ctx.stroke();
 
