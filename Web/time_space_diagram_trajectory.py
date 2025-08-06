@@ -16,7 +16,6 @@ os.makedirs(output_folder, exist_ok=True)
 
 
 def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, with_trajectory=True):
-
     global df
 
     df["speed_mps"] = df["speed_limit_kph"] / 3.6
@@ -27,9 +26,11 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
     filtered_all = filtered_all.sort_values(order_col)
     filtered_all["cumulative_distance"] = filtered_all["distance_from_prev_meter"].cumsum().fillna(0)
 
-    # 시각화용 교차로만 필터
+    # sa_num 필터
     if sa_num is not None:
-        filtered = filtered_all[filtered_all["SA_num"] == sa_num].copy()
+        sa_range = 2
+        sa_min, sa_max = sa_num - sa_range, sa_num + sa_range
+        filtered = filtered_all[(filtered_all["SA_num"] >= sa_min) & (filtered_all["SA_num"] <= sa_max)].copy()
     else:
         filtered = filtered_all.copy()
 
@@ -65,7 +66,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
 
     # ✅ 녹색 신호 반복 표시 + green_windows 저장용
     green_windows_data = []
-    for _, row in filtered_all.iterrows():
+    for _, row in filtered.iterrows():
         cycle = row["cycle_length_sec"]
         offset = row["offset_sec"]
         green_start = row["green_start_sec"]
@@ -91,6 +92,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
                     "green_start_time": start,
                     "green_end_time": end,
                     "cycle": cycle,
+                    "cumulative_distance": y
                 }
             )
 
@@ -107,9 +109,9 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
     for veh_id in range(1, end_time + 1, 53):
         t = veh_id
         log = []
-        curr_pos = filtered_all.iloc[0]["cumulative_distance"]
+        curr_pos = filtered.iloc[0]["cumulative_distance"]
 
-        for _, row in filtered_all.iterrows():
+        for _, row in filtered.iterrows():
             dist = row["distance_from_prev_meter"]
             if dist <= 0:
                 continue

@@ -3,6 +3,8 @@
 <head>
   <title>교차로 시공도 생성</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- ① PapaParse 라이브러리 로드 -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
    /* 기존 CSS 내용은 그대로 유지 */
    body {
@@ -77,12 +79,18 @@
       종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
       <button type="button" id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
-    </form>
-    <div id="result">
-        <div id="loading" style="display:none;">
+      <div id="loading" style="display:none;">
         <p>시공도 생성 중입니다...</p>
         <img src="/static/loading.gif" alt="로딩 중" width="50">
       </div>
+    </form>
+    <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
+    <br>
+    <!-- <button type="button" onclick="drawCanvasFromCsv()" style="background-color: #337ab7; color: white; margin-top: 10px;"> -->
+      🎯 Canvas 시공도 보기
+    </button>
+    <div id="result">
+
       <div id="image-result">
         {% if image_url %}
           <h2>결과 시공도</h2>
@@ -91,6 +99,7 @@
       </div>
     </div>
     <script src="dist/bundle.js"></script>
+    <!-- <script type="module" src="index.js"></script> -->
 </body>
 <footer style="margin-top: 50px; color: #0f0f0f; font-size: 14px;">
   ⓒ 2025 CityeyeLab. 교차로 시공도 분석 도구.
