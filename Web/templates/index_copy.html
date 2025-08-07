@@ -2,11 +2,11 @@
 <html>
 <head>
   <title>교차로 시공도 생성</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.css" />
-  <!-- <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.min.js"></script> -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/plugins/copyPaste/copyPaste.js"></script> -->
+  <!-- ① PapaParse 라이브러리 로드 -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
+   /* 기존 CSS 내용은 그대로 유지 */
    body {
     font-family: 'Noto Sans KR', sans-serif;
     margin: 20px;
@@ -62,7 +62,7 @@
     height: auto;
     border: 1px solid #ddd;
     border-radius: 4px;
-   }    
+   }
   </style>
 </head>
 
@@ -79,185 +79,28 @@
       종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
       <button type="button" id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>
-    </form>
-    <div id="result">
-        <div id="loading" style="display:none;">
+      <div id="loading" style="display:none;">
         <p>시공도 생성 중입니다...</p>
         <img src="/static/loading.gif" alt="로딩 중" width="50">
       </div>
+      <h2>🎯 Canvas 시공도</h2>
+    </form>
+    <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
+    <br>
+    <!-- <button type="button" onclick="drawCanvasFromCsv()" style="background-color: #337ab7; color: white; margin-top: 10px;"> -->
+      
+    </button>
+    <div id="result">
+
       <div id="image-result">
         {% if image_url %}
-          <h2>결과 시공도</h2>
+          <h2>Matplotlib 시공도</h2>
           <img src="{{ image_url }}" width="800">
         {% endif %}
       </div>
     </div>
-    <script>
-      let hot;
-      document.getElementById("image-result").innerHTML = "";
-      document.addEventListener("DOMContentLoaded", function() {
-        const container = document.getElementById('hot');
-
-        hot = new Handsontable(container, {
-          data: [],
-          rowHeaders: true,
-          colHeaders: true,
-          width: '100%',
-          height: 500,
-          manualRowResize: true,      // ✅ 행 크기 수동 조절 가능
-          stretchH: 'all',            // ✅ 열 너비 자동 확장
-          copyPaste: true,
-          fragmentSelection: true,            // 복수 셀 클립보드 복사 허용
-          contextMenu: true,
-          licenseKey: 'non-commercial-and-evaluation',
-          minSpareRows: 1,
-          minRows: 0,
-          viewportRowRenderingOffset: 20,
-          allowInsertRow: true,
-          // allowHtml: true,
-          trimWhitespace: true,
-          outsideClickDeselects: false,       // 외부 클릭해도 셀 선택 유지
-          pasteMode: 'overwrite', // ✅ 이 부분을 추가하거나 'shift_down' 등으로 변경하며 테스트
-          beforePaste: function(data, coords) {
-            console.log("--- beforePaste 훅 실행 ---");
-            console.log("클립보드 데이터 (원본):", data); // [["cell1\tcell2"], ["cell3\tcell4"]]와 같은 형태를 기대
-            console.log("붙여넣을 시작 셀 (좌표):", coords);
-            console.log("------------------------");
-          }
-        });
-
-        document.getElementById('FileInput').addEventListener('change', function(e) {
-          const file = e.target.files[0];
-          if (!file) return;
-
-          const fileName = file.name.toLowerCase();
-      
-          if (fileName.endsWith('.xlsx') | fileName.endsWith('.csv')) {
-            const reader = new FileReader();
-            reader.onload = function (event) {
-              const data = new Uint8Array(event.target.result);
-              const workbook = XLSX.read(data, { type: 'array' });
-
-              const firstSheetName = workbook.SheetNames[0];
-              const sheet = workbook.Sheets[firstSheetName];
-
-              const rows = XLSX.utils.sheet_to_json(sheet, {
-                header: 1,
-                raw: true // ✅ 서식 제거해서 원본 숫자 유지
-              });
-
-              if (rows.length === 0) return;
-
-              const headers = rows[0];  // ✅ 엑셀 첫 줄을 Handsontable colHeaders로 사용
-              const expectedCols = headers.length;
-
-              // ✅ 헤더 제거 + 빈 행 제거
-              const cleaned = rows.slice(1)
-                .filter(row => row.some(cell => String(cell ?? "").trim() !== ""))
-                .map(row => {
-                  while (row.length < expectedCols) row.push("");
-                  return row;
-                })
-              hot.updateSettings({
-                data: cleaned,
-                colHeaders: headers,
-              });
-            };
-            reader.readAsArrayBuffer(file);
-          }
-        });
-        
-        document.getElementById("form").addEventListener("submit", function(e) {
-          e.preventDefault();
-
-          const direction = document.getElementById("direction").value.trim();
-          const sa_num = document.getElementById("sa_num").value.trim();
-          const end_time = document.getElementById("end_time").value.trim();
-
-          if (!direction) {
-            alert("⚠️ 방향 값을 입력하세요.");
-            return;
-          }
-
-          if (!sa_num || isNaN(sa_num)) {
-            alert("⚠️ 유효한 SA_num 값을 입력하세요.");
-            return;
-          }
-
-          if (!end_time || isNaN(end_time) || Number(end_time) <= 0) {
-            alert("⚠️ 유효한 종료 시간을 입력하세요.");
-            return;
-          }
-          
-          document.getElementById("loading").style.display = "block";
-
-          const data = hot.getData();
-          
-          const payload = {
-            data: data,
-            direction: direction,
-            sa_num: sa_num,
-            end_time: end_time
-          };
-
-          fetch("/generate", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-          })
-          .then(res => res.json())
-          .then(json => {
-            document.getElementById("loading").style.display = "none";
-
-            const imgTag = `
-              <h2>결과 시공도</h2>
-              <img src="${json.image_url}" width="800">
-            `;
-              document.getElementById("image-result").innerHTML = imgTag;
-          })
-          .catch(err => {
-            document.getElementById("loading").style.display = "none";
-            alert("❌ 시공도 생성 중 오류가 발생했습니다.");
-            console.error(err);
-          });
-        });
-
-        document.getElementById("saveExcelBtn").addEventListener("click", function(e) {
-          e.preventDefault();
-
-          const data = hot.getData();
-          const headers = hot.getColHeader();
-          const direction = document.getElementById("direction").value.trim();
-          const sa_num = document.getElementById("sa_num").value.trim();
-          const end_time = document.getElementById("end_time").value.trim();
-
-          // 2차원 배열 → 객체 배열 변환
-          const rows = data.map(row => {
-          const obj = {};
-          headers.forEach((key, idx) => obj[key] = row[idx]);
-            return obj;
-          });
-
-          fetch("/save_excel_csv", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              rows: rows,
-              headers: headers,
-              direction: direction,
-              sa_num: sa_num,
-              end_time: end_time
-            })
-          })
-          .then(res => res.json())
-          .then(json => {
-            alert("✅ CSV 파일 저장 완료!\n경로: " + json.path);
-          });
-        });
-      });
-    </script>
+    <script src="dist/bundle.js"></script>
+    <!-- <script type="module" src="index.js"></script> -->
 </body>
 <footer style="margin-top: 50px; color: #0f0f0f; font-size: 14px;">
   ⓒ 2025 CityeyeLab. 교차로 시공도 분석 도구.

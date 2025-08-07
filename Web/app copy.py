@@ -5,9 +5,15 @@ from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
 # 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
+# js 수정 후 npx webpack --mode=development
 
 # Webpack 빌드 결과물(bundle.js)을 Flask가 서빙할 수 있도록 설정
-app = Flask(__name__, static_folder='dist', static_url_path='/dist')
+app = Flask(__name__, static_folder='static', static_url_path='/static')
+
+# 번들 JS는 따로 dist 폴더에서 서빙
+@app.route('/dist/<path:filename>')
+def serve_dist(filename):
+    return send_from_directory('dist', filename)
 
 def preprocess_df(data):
     columns = [
@@ -35,12 +41,10 @@ def preprocess_df(data):
 
     return df
 
-
-
 UPLOAD_FOLDER = 'Web/static/input'
 OUTPUT_FOLDER = 'Web/static/output'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+# os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -57,9 +61,11 @@ def generate():
         content = request.get_json()
         data = content['data']
         direction = content['direction']
-
         # sa_num과 end_time 값의 유효성 검사 및 기본값 설정
         sa_num_input = content.get('sa_num')
+        print("[백엔드] 프론트에서 받은 sa_num_input:", sa_num_input)
+
+
         if sa_num_input: # 빈 문자열이 아닌 경우에만 변환 시도
             try:
                 sa_num = int(float(sa_num_input))
@@ -67,6 +73,8 @@ def generate():
                 sa_num = None
         else:
             sa_num = None
+            
+        print("[백엔드] 실제 draw에 들어가는 sa_num:", sa_num)
 
         end_time_input = content.get('end_time')
         if end_time_input: # 빈 문자열이 아닌 경우에만 변환 시도
@@ -78,27 +86,6 @@ def generate():
             end_time = 1800 # 입력값이 없으면 기본값
 
         df = preprocess_df(data)
-        # columns = [
-        #     "street_name", "order_num", "SA_num", "intersection_id", "intersection_name", "direction", "distance_from_prev_meter",
-        #     "time_plan", "cycle_length_sec", "green_start_sec","green_duration_sec", "offset_sec", "speed_limit_kph"
-        # ]
-        # df = pd.DataFrame(data, columns=columns)
-        # df = df.dropna(how='all')
-
-        # # 숫자형 변환
-        # num_cols = ["order_num", "SA_num", "distance_from_prev_meter", "cycle_length_sec",
-        #             "green_start_sec", "green_duration_sec", "offset_sec", "speed_limit_kph"]
-        # for col in num_cols:
-        #     if col in df.columns:
-        #         df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # integer_cols_to_convert_nullable = [
-        #     "order_num", "SA_num", "cycle_length_sec", "green_start_sec",
-        #     "green_duration_sec", "offset_sec",
-        # ]
-        # for col in integer_cols_to_convert_nullable:
-        #     if col in df.columns:
-        #         df[col] = df[col].astype('Int64')
 
         # 📌 핵심: 사용자 입력 파일을 사용하는 draw 함수 실행
         import time_space_diagram_trajectory as tsd
@@ -111,13 +98,15 @@ def generate():
         image_url = f"/static/output/{output_name}"
 
         # draw_time_space_diagram 함수 호출 전에 인자가 올바른지 다시 확인
+        print(f"[백엔드] draw_time_space_diagram({direction}, {output_name}, sa_num={sa_num}, end_time={end_time})")
         tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
         
-        return jsonify({"image_url": image_url})
+        return jsonify({"image_url": image_url, "file_prefix": output_name.replace('.png','')})
     except Exception as e:
         print(f"❌ 시공도 생성 중 오류 발생: {e}")
         # 오류 발생 시 클라이언트에 명확한 메시지를 전달
         return jsonify({"error": f"시공도 생성 실패. 오류: {str(e)}"}), 500
+        
     
 @app.route('/generate_json', methods=['POST'])
 def generate_json():
@@ -147,24 +136,6 @@ def generate_json():
             end_time = 1800
 
         df = preprocess_df(data)
-        # 데이터프레임 생성
-        # columns = [
-        #     "street_name", "order_num", "SA_num", "intersection_id", "intersection_name", "direction", "distance_from_prev_meter",
-        #     "time_plan", "cycle_length_sec", "green_start_sec","green_duration_sec", "offset_sec", "speed_limit_kph"
-        # ]
-        # df = pd.DataFrame(data, columns=columns)
-        # df = df.dropna(how='all')
-
-        # num_cols = ["order_num", "SA_num", "distance_from_prev_meter", "cycle_length_sec",
-        #             "green_start_sec", "green_duration_sec", "offset_sec", "speed_limit_kph"]
-        # for col in num_cols:
-        #     if col in df.columns:
-        #         df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # integer_cols = ["order_num", "SA_num", "cycle_length_sec", "green_start_sec", "green_duration_sec", "offset_sec"]
-        # for col in integer_cols:
-        #     if col in df.columns:
-        #         df[col] = df[col].astype('Int64')
 
         # draw 함수 실행
         import time_space_diagram_trajectory as tsd
@@ -177,14 +148,15 @@ def generate_json():
 
         # 🔥 draw 함수 호출 (이미지 저장은 하지만 쓰진 않음)
         tsd.draw_time_space_diagram(direction, f"{output_basename}.png", sa_num, end_time, with_trajectory=True)
-
+        file_prefix = output_basename.replace('.png', '')  # 'diagram_서동_SA13_20250805155730' 형태
         # 🔁 생성된 CSV 경로 반환
         traj_csv_url = f"/static/output/{output_basename}_trajectories.csv"
         green_csv_url = f"/static/output/{output_basename}_green_windows.csv"
 
         return jsonify({
             "trajectory_csv": traj_csv_url,
-            "green_window_csv": green_csv_url
+            "green_window_csv": green_csv_url,
+            "file_prefix": output_basename
         })
 
     except Exception as e:

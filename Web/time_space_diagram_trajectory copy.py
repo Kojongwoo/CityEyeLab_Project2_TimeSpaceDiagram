@@ -66,7 +66,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
 
     # ✅ 녹색 신호 반복 표시 + green_windows 저장용
     green_windows_data = []
-    for _, row in filtered_all.iterrows():
+    for _, row in filtered.iterrows():
         cycle = row["cycle_length_sec"]
         offset = row["offset_sec"]
         green_start = row["green_start_sec"]
@@ -109,9 +109,9 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
     for veh_id in range(1, end_time + 1, 53):
         t = veh_id
         log = []
-        curr_pos = filtered_all.iloc[0]["cumulative_distance"]
+        curr_pos = filtered.iloc[0]["cumulative_distance"]
 
-        for _, row in filtered_all.iterrows():
+        for _, row in filtered.iterrows():
             dist = row["distance_from_prev_meter"]
             if dist <= 0:
                 continue
@@ -132,12 +132,6 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
                 & (green_df["green_end_time"] >= arrival - 1e-3)
             ]
 
-            # if not green_ok.empty:
-            #     # 이동
-            #     log.append((t, curr_pos, arrival, next_pos, intersec))
-            #     t = arrival
-            #     curr_pos = next_pos
-            # else:
             if green_ok.empty:  
                 future_green = green_df[
                     (green_df["intersection_name"] == intersec) & (green_df["green_start_time"] >= arrival - 5)

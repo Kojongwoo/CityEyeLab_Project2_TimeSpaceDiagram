@@ -132,12 +132,6 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
                 & (green_df["green_end_time"] >= arrival - 1e-3)
             ]
 
-            # if not green_ok.empty:
-            #     # 이동
-            #     log.append((t, curr_pos, arrival, next_pos, intersec))
-            #     t = arrival
-            #     curr_pos = next_pos
-            # else:
             if green_ok.empty:  
                 future_green = green_df[
                     (green_df["intersection_name"] == intersec) & (green_df["green_start_time"] >= arrival - 5)
