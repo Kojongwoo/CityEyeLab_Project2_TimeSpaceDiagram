@@ -99,7 +99,7 @@ def generate():
 
         # draw_time_space_diagram 함수 호출 전에 인자가 올바른지 다시 확인
         print(f"[백엔드] draw_time_space_diagram({direction}, {output_name}, sa_num={sa_num}, end_time={end_time})")
-        tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
+        tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=False)
         
         return jsonify({"image_url": image_url, "file_prefix": output_name.replace('.png','')})
     except Exception as e:
@@ -147,7 +147,7 @@ def generate_json():
         output_basename = f"diagram_{direction}_{sa_str}_{timestamp}"
 
         # 🔥 draw 함수 호출 (이미지 저장은 하지만 쓰진 않음)
-        tsd.draw_time_space_diagram(direction, f"{output_basename}.png", sa_num, end_time, with_trajectory=True)
+        tsd.draw_time_space_diagram(direction, f"{output_basename}.png", sa_num, end_time, with_trajectory=False)
         file_prefix = output_basename.replace('.png', '')  # 'diagram_서동_SA13_20250805155730' 형태
         # 🔁 생성된 CSV 경로 반환
         traj_csv_url = f"/static/output/{output_basename}_trajectories.csv"

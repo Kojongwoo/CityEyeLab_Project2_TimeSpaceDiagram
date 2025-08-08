@@ -1,4 +1,3 @@
-// import { Handsontable } from 'handsontable';
 import Handsontable from 'handsontable';
 import * as XLSX from 'xlsx';
 import 'handsontable/dist/handsontable.min.css';
@@ -83,10 +82,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
     const direction = document.getElementById("direction").value.trim();
     const sa_num = document.getElementById("sa_num").value.trim();
-    // let title = `시공도 + 궤적 (방향: ${direction}`;
-    // if (sa_num) title += `, SA_num=${sa_num}`;
-    // title += `, 0~${end_time}초)`;
-    // ctx.fillText(title, canvas.width / 2, 30);
     const end_time = document.getElementById("end_time").value.trim() || 400; // 기본값 400초
 
     console.log("[프론트] payload sa_num:", sa_num, "direction:", direction, "end_time:", end_time);
@@ -138,18 +133,22 @@ document.addEventListener("DOMContentLoaded", function() {
       document.getElementById("loading").style.display = "none";
       // json.image_url이 존재하지 않을 경우의 예외 처리 추가
       if (json.image_url) {
-        const imgTag = `
-          <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
-          <img src="${json.image_url}" width="800">
-        `;
-        document.getElementById("image-result").innerHTML = imgTag;
+      // Canvas 영역 표시
+      document.getElementById("canvasSection").style.display = "block";
+
+        // Matplotlib 시공도 이미지 URL을 가져와서 표시
+        // const imgTag = `
+        //   <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
+        //   <img src="${json.image_url}" width="800">
+        // `;
+        // document.getElementById("image-result").innerHTML = imgTag;
+
         // (추가) canvas 자동 호출
         if(json.file_prefix) {
-          drawCanvasFromCsv(json.file_prefix, payload.end_time);
+          drawCanvasFromCsv(json.file_prefix, payload.end_time, payload.direction, payload.sa_num);
         }
-      } 
-      else {
-          alert("❌ 시공도 이미지 URL을 가져오지 못했습니다.");
+      } else {
+        alert("❌ 시공도 이미지 URL을 가져오지 못했습니다.");
       }
     })
     // .catch(err => {
@@ -193,6 +192,47 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 });
 
+document.getElementById("diagramCanvas").addEventListener("click", function(event) {
+  const canvas = event.target;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const clickY = event.clientY - rect.top;
+
+  // 가장 가까운 궤적 찾기
+  let foundVehicle = null;
+  let minDist = 10; // px 이내만 허용 (더 늘릴 수 있음)
+  Object.entries(trajectoryPaths).forEach(([vid, path]) => {
+    for (let i = 0; i < path.length; i++) {
+      const pt = path[i];
+      const dx = pt.x - clickX;
+      const dy = pt.y - clickY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDist) {
+        foundVehicle = vid;
+        minDist = dist;
+      }
+    }
+  });
+  if (foundVehicle) {
+    // 선택 로직: 이미 있으면 해제, 아니면 2개까지만 선택
+    const idx = selectedTrajectories.indexOf(foundVehicle);
+    if (idx >= 0) {
+      selectedTrajectories.splice(idx, 1);
+    } else if (selectedTrajectories.length < 2) {
+      selectedTrajectories.push(foundVehicle);
+    } else {
+      // 이미 2개 선택 중이면 첫 번째 해제, 새로 추가
+      selectedTrajectories.shift();
+      selectedTrajectories.push(foundVehicle);
+    }
+    // 선택 즉시 다시 그리기!
+    if (lastTrajectoryData && lastGreenWindowData && lastEndTime) {
+      drawOnCanvas(lastTrajectoryData, lastGreenWindowData, lastEndTime);
+    }
+  }
+});
+
+
 // ✅ Canvas 시공도 그리기
 async function drawTimeSpaceDiagram() {
   const direction = document.getElementById("direction").value.trim();
@@ -225,20 +265,25 @@ async function drawTimeSpaceDiagram() {
     return;
   }
   // 👇 이 한 줄만 추가 (자동 canvas 호출)
-  drawCanvasFromCsv(result.file_prefix, end_time);
+  drawCanvasFromCsv(result.file_prefix, end_time, direction, sa_num);
 
 }
-async function drawCanvasFromCsv(filePrefix, end_time) {
+
+async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
   if (!filePrefix) {
     alert("파일명이 지정되지 않았습니다!");
     return;
   }
+
+  if (direction && typeof direction !== "string") direction = direction.value || "";
+  if (sa_num && typeof sa_num !== "string") sa_num = sa_num.value || "";
+
   const trajUrl = `/static/output/${filePrefix}_trajectories.csv`;
   const greenUrl = `/static/output/${filePrefix}_green_windows.csv`;
 
   const trajData = await loadCSV(trajUrl);
   const greenData = await loadCSV(greenUrl);
-  drawOnCanvas(trajData, greenData, parseFloat(end_time));
+  drawOnCanvas(trajData, greenData, parseFloat(end_time), direction, sa_num);
 }
 
 async function loadCSV(url) {
@@ -248,7 +293,20 @@ async function loadCSV(url) {
   return parsed.data;
 }
 
-function drawOnCanvas(trajectory, green_windows, end_time) {
+let trajectoryPaths = {};         // 궤적별 [캔버스좌표] 배열
+let selectedTrajectories = [];    // 선택된 vehicle_id(문자열!) 최대 2개 저장
+
+// 캔버스, 데이터 최신값을 기억하기 위한 변수
+let lastTrajectoryData = null;
+let lastGreenWindowData = null;
+let lastEndTime = null;
+
+// 캔버스에 그리기
+// trajectory: 궤적 데이터, green_windows: 신호등 데이터, end_time: 종료 시간
+function drawOnCanvas(trajectory, green_windows, end_time, direction = '', sa_num = '') {
+  lastTrajectoryData = trajectory;
+  lastGreenWindowData = green_windows;
+  lastEndTime = end_time;
   const canvas = document.getElementById("diagramCanvas");
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -327,21 +385,37 @@ function drawOnCanvas(trajectory, green_windows, end_time) {
   });
 
   // (4) 궤적 선
+  trajectoryPaths = {};  // 매번 새로 만듭니다
   const grouped = groupBy(trajectory, "vehicle_id");
   Object.entries(grouped).forEach(([vid, traj], idx) => {
     traj.sort((a, b) => parseFloat(a.time) - parseFloat(b.time));
+    let pathPoints = [];
     ctx.beginPath();
-    ctx.strokeStyle = COLORS[idx % COLORS.length];
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.6;
+
+    // 궤적 하이라이트 색상/굵기 처리
+    let color = COLORS[idx % COLORS.length];
+    if (selectedTrajectories.includes(vid)) {
+      color = (selectedTrajectories[0] === vid) ? "#e53935" : "#1976d2"; // 빨강/파랑
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 1.0;
+    } else {
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.6;
+    }
+    ctx.strokeStyle = color;
+
     traj.forEach((row, i) => {
       const x = convertX(parseFloat(row.time));
       const y = convertY(parseFloat(row.position));
+      pathPoints.push({ x, y, t: row.time, pos: row.position });
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
     ctx.globalAlpha = 1.0;
+
+    // 저장!
+    trajectoryPaths[vid] = pathPoints;
   });
 
   // === [4] 축선 그리기 ===
@@ -358,37 +432,37 @@ function drawOnCanvas(trajectory, green_windows, end_time) {
   ctx.lineTo(plotRight, plotBottom);
   ctx.stroke();
 
-// === [Y축: 교차로명 및 중간 거리(↕)] ===
-const intersections = [];
-const seen = new Set();
-green_windows.forEach(row => {
-  const y = parseFloat(row.cumulative_distance);
-  const key = row.intersection_name + '_' + y;
-  if (row.intersection_name && !isNaN(y) && !seen.has(key)) {
-    intersections.push({ name: row.intersection_name, y: y });
-    seen.add(key);
-  }
-});
-intersections.sort((a, b) => a.y - b.y);
+  // === [Y축: 교차로명 및 중간 거리(↕)] ===
+  const intersections = [];
+  const seen = new Set();
+  green_windows.forEach(row => {
+    const y = parseFloat(row.cumulative_distance);
+    const key = row.intersection_name + '_' + y;
+    if (row.intersection_name && !isNaN(y) && !seen.has(key)) {
+      intersections.push({ name: row.intersection_name, y: y });
+      seen.add(key);
+    }
+  });
+  intersections.sort((a, b) => a.y - b.y);
 
-// yTick(교차로), yLabels(이름/↕거리) 생성
-let yTicks = [], yLabels = [];
-for (let i = 0; i < intersections.length; i++) {
-  const curr = intersections[i];
-  yTicks.push(curr.y);
-  yLabels.push(curr.name);
+  // yTick(교차로), yLabels(이름/↕거리) 생성
+  let yTicks = [], yLabels = [];
+  for (let i = 0; i < intersections.length; i++) {
+    const curr = intersections[i];
+    yTicks.push(curr.y);
+    yLabels.push(curr.name);
 
-  // 중간 ↕거리 라벨
-  if (i < intersections.length - 1) {
-    const next = intersections[i+1];
-    const dist = Math.round(next.y - curr.y);
-    if (dist > 0) {
-      const midY = (curr.y + next.y) / 2;
-      yTicks.push(midY);
-      yLabels.push(`↕ ${dist}m`);
+    // 중간 ↕거리 라벨
+    if (i < intersections.length - 1) {
+      const next = intersections[i+1];
+      const dist = Math.round(next.y - curr.y);
+      if (dist > 0) {
+        const midY = (curr.y + next.y) / 2;
+        yTicks.push(midY);
+        yLabels.push(`↕ ${dist}m`);
+      }
     }
   }
-}
 
   // Y축 이름
   ctx.save();
@@ -409,7 +483,11 @@ for (let i = 0; i < intersections.length; i++) {
   // 타이틀
   ctx.font = "18px 'Malgun Gothic'";
   ctx.textAlign = "center";
-  ctx.fillText("시공도 + 궤적 (방향: 동서, SA_num=13, 0~" + end_time + "초)", (plotLeft + plotRight) / 2, 32);
+  let title = `시공도 + 궤적 (방향: ${direction}`;
+  if (sa_num) title += `, SA_num=${sa_num}`;
+  title += `, 0~${end_time}초)`;
+  ctx.fillText(title, (plotLeft + plotRight) / 2, 32);
+  // ctx.fillText("시공도 + 궤적 (방향: 동서, SA_num=13, 0~" + end_time + "초)", (plotLeft + plotRight) / 2, 32);
 
   // y축 눈금/라벨(플롯 왼쪽)
   ctx.font = "12px 'Malgun Gothic'";
@@ -442,3 +520,89 @@ function groupBy(array, key) {
     return result;
   }, {});
 }
+
+function interpolateTimeForPosition(traj, pos) {
+  // traj: [{time, position}, ...] (time과 position 모두 parseFloat 필요)
+  for (let i = 1; i < traj.length; i++) {
+    const prev = traj[i - 1];
+    const curr = traj[i];
+    if ((prev.position <= pos && curr.position >= pos) ||
+        (prev.position >= pos && curr.position <= pos)) {
+      const ratio = (pos - prev.position) / (curr.position - prev.position);
+      return parseFloat(prev.time) + ratio * (parseFloat(curr.time) - parseFloat(prev.time));
+    }
+  }
+  return null;
+}
+
+function calcTimeDiffByPosition(traj1, traj2) {
+  // position 오름차순 정렬
+  traj1 = traj1.slice().sort((a, b) => parseFloat(a.position) - parseFloat(b.position));
+  traj2 = traj2.slice().sort((a, b) => parseFloat(a.position) - parseFloat(b.position));
+
+  // 공통 위치 구간 추출
+  const minPos = Math.max(parseFloat(traj1[0].position), parseFloat(traj2[0].position));
+  const maxPos = Math.min(parseFloat(traj1[traj1.length - 1].position), parseFloat(traj2[traj2.length - 1].position));
+
+  const step = 1; // 1m 간격
+  const diffs = [];
+  for (let pos = minPos; pos <= maxPos; pos += step) {
+    const t1 = interpolateTimeForPosition(traj1, pos);
+    const t2 = interpolateTimeForPosition(traj2, pos);
+    if (t1 !== null && t2 !== null) {
+      diffs.push(Math.abs(t1 - t2));
+    }
+  }
+  if (diffs.length === 0) return null;
+  const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+  const min = Math.min(...diffs);
+  const max = Math.max(...diffs);
+  return { avg, min, max };
+}
+
+// === 거리 계산 버튼 클릭 이벤트 ===
+document.getElementById("distanceBtn").addEventListener("click", function() {
+  if (selectedTrajectories.length !== 2) {
+    document.getElementById("distanceResult").textContent = "궤적을 2개 선택하세요!";
+    return;
+  }
+  // 궤적 데이터 가져오기
+  const traj1 = lastTrajectoryData.filter(row => row.vehicle_id === selectedTrajectories[0]);
+  const traj2 = lastTrajectoryData.filter(row => row.vehicle_id === selectedTrajectories[1]);
+  if (traj1.length === 0 || traj2.length === 0) {
+    document.getElementById("distanceResult").textContent = "선택된 궤적 데이터가 없습니다!";
+    return;
+  }
+
+  // === "가장 가까운 시점" 거리 차이를 예시로 계산 ===
+  // 1. 모든 시간(초)에 대해, 같은 시간대의 위치(거리)를 찾아서 차이
+  // 2. 둘 중 공통되는 시간만 비교(즉, time이 일치하는 구간만)
+
+  const posMap1 = {};  // time: position
+  traj1.forEach(row => { posMap1[row.time] = parseFloat(row.position); });
+  const posMap2 = {};
+  traj2.forEach(row => { posMap2[row.time] = parseFloat(row.position); });
+
+  // 공통 time만 추출
+  const commonTimes = Object.keys(posMap1).filter(t => t in posMap2);
+  if (commonTimes.length === 0) {
+    document.getElementById("distanceResult").textContent = "두 궤적의 공통 시간이 없습니다!";
+    return;
+  }
+
+  // 각 시간별 거리 차이 절댓값 구해서 평균/최소/최대 등 구하기, 두 궤적 간 시간 차이
+  const diffs = commonTimes.map(t => Math.abs(posMap1[t] - posMap2[t]));
+  const minDiff = Math.min(...diffs);
+  const maxDiff = Math.max(...diffs);
+  const avgDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+  const timeDiffStats = calcTimeDiffByPosition(traj1, traj2);
+
+  let html = 
+  `<div> 거리 차이 (공통 시간대 기준): 평균 ${avgDiff.toFixed(2)} m, 최소 ${minDiff.toFixed(2)} m, 최대 ${maxDiff.toFixed(2)} m</div>`;
+  
+  if (timeDiffStats) {
+    html += `<div>시간 차이 (공통 위치 기준): 평균 ${timeDiffStats.avg.toFixed(2)}초, 최소 ${timeDiffStats.min.toFixed(2)}초, 최대 ${timeDiffStats.max.toFixed(2)}초</div>`;
+  }
+  // 결과 출력
+  document.getElementById("distanceResult").innerHTML = html;
+});

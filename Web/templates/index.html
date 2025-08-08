@@ -63,6 +63,49 @@
     border: 1px solid #ddd;
     border-radius: 4px;
    }
+   .switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+  vertical-align: middle;
+  }
+
+  .switch input:checked + .slider {
+  background-color: red;
+  }
+  .switch .slider {
+    background-color: #ccc;
+  }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 34px;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+  }
+
+  input:checked + .slider {
+    background-color: #4CAF50; /* ON 상태 - 초록색 */
+  }
+
+  input:checked + .slider:before {
+    transform: translateX(26px);
+  }
   </style>
 </head>
 
@@ -83,15 +126,26 @@
         <p>시공도 생성 중입니다...</p>
         <img src="/static/loading.gif" alt="로딩 중" width="50">
       </div>
-      <h2>🎯 Canvas 시공도</h2>
-      
+      <div id="canvasSection" style="display:none; margin-top:20px;">
+        <h2>🎯 시공도</h2>
+          <div>두 궤적을 선택하시오.</div>
     </form>
-    <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
-      <div id="canvas-controls" style="margin-top:15px; text-align:right;"></div>
-        <button id="distanceBtn" style="background:#1976d2;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-right:30px;cursor:pointer;">
-          선택 두 궤적 간 거리, 시간 차이 계산
-        </button>
-        <span id="distanceResult" style="font-size:16px;color:#d32f2f;"></span>
+      <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
+        <div id="canvas-controls" style="margin-top:15px; text-align:right;"></div>
+          <button id="drawLineModeBtn" style="background:#4caf50;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-top:10px;cursor:pointer;"  type="button">
+            ✏️ 선 그리기 모드 ON/OFF
+          </button>
+
+          <!-- 삭제 모드 토글
+          <button id="deleteModeBtn" style="background:#f44336;color:#fff;">
+            🗑️ 삭제 모드 OFF
+          </button> -->
+
+          <button id="distanceBtn" style="background:#1976d2;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-right:30px;cursor:pointer;"  type="button">
+            두 궤적 간 거리, 시간 차이 계산
+          </button>
+          <span id="distanceResult" style="font-size:16px;color:#000000;"></span>
+        </div>
       </div>
     <br>
     <!-- <button type="button" onclick="drawCanvasFromCsv()" style="background-color: #337ab7; color: white; margin-top: 10px;"> -->

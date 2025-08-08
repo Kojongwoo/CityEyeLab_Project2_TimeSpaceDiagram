@@ -4,6 +4,18 @@ import 'handsontable/dist/handsontable.min.css';
 
 let hot;
 
+let isDrawMode = false;    
+let lineStart = null;
+let currentLinePreviewEnd = null;
+
+let drawnTrajectories = []; // 그려진 모든 궤적 저장
+let isDrawing = false; // 드래그 상태 여부
+let currentPath = null;
+
+let globalGreenWindows = [];
+let globalTrajectories = [];
+let globalEndTime = 0;
+
 window.drawTimeSpaceDiagram = drawTimeSpaceDiagram;
 window.drawCanvasFromCsv = drawCanvasFromCsv; // 필요시 사용
 
@@ -30,10 +42,10 @@ document.addEventListener("DOMContentLoaded", function() {
     outsideClickDeselects: false,
     pasteMode: 'overwrite',
     beforePaste: function(data, coords) {
-      console.log("--- beforePaste 훅 실행 ---");
-      console.log("클립보드 데이터 (원본):", data);
-      console.log("붙여넣을 시작 셀 (좌표):", coords);
-      console.log("------------------------");
+      // console.log("--- beforePaste 훅 실행 ---");
+      // console.log("클립보드 데이터 (원본):", data);
+      // console.log("붙여넣을 시작 셀 (좌표):", coords);
+      // console.log("------------------------");
     }
   });
 
@@ -84,7 +96,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const sa_num = document.getElementById("sa_num").value.trim();
     const end_time = document.getElementById("end_time").value.trim() || 400; // 기본값 400초
 
-    console.log("[프론트] payload sa_num:", sa_num, "direction:", direction, "end_time:", end_time);
+    // console.log("[프론트] payload sa_num:", sa_num, "direction:", direction, "end_time:", end_time);
 
     if (!direction) {
       alert("⚠️ 방향을 입력하세요.");
@@ -133,18 +145,22 @@ document.addEventListener("DOMContentLoaded", function() {
       document.getElementById("loading").style.display = "none";
       // json.image_url이 존재하지 않을 경우의 예외 처리 추가
       if (json.image_url) {
-        const imgTag = `
-          <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
-          <img src="${json.image_url}" width="800">
-        `;
-        document.getElementById("image-result").innerHTML = imgTag;
+      // Canvas 영역 표시
+      document.getElementById("canvasSection").style.display = "block";
+
+        // Matplotlib 시공도 이미지 URL을 가져와서 표시
+        // const imgTag = `
+        //   <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
+        //   <img src="${json.image_url}" width="800">
+        // `;
+        // document.getElementById("image-result").innerHTML = imgTag;
+
         // (추가) canvas 자동 호출
         if(json.file_prefix) {
           drawCanvasFromCsv(json.file_prefix, payload.end_time, payload.direction, payload.sa_num);
         }
-      } 
-      else {
-          alert("❌ 시공도 이미지 URL을 가져오지 못했습니다.");
+      } else {
+        alert("❌ 시공도 이미지 URL을 가져오지 못했습니다.");
       }
     })
     // .catch(err => {
@@ -187,6 +203,84 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 });
+
+// 선 그리기 모드 토글
+document.getElementById("drawLineModeBtn").addEventListener("click", () => {
+  isDrawMode = !isDrawMode;
+  console.log("Draw mode:", isDrawMode);
+});
+
+// === Canvas 요소 ===
+const canvas = document.getElementById("diagramCanvas");
+const ctx = canvas.getContext("2d");
+
+// === 마우스 좌표 변환 ===
+function getCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top
+  };
+}
+
+// === 마우스 이벤트 ===
+canvas.addEventListener("mousedown", (e) => {
+    if (!isDrawMode) return;
+    const rect = canvas.getBoundingClientRect();
+    lineStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    isDrawing = true;
+});
+
+canvas.addEventListener("mousemove", (e) => {
+    if (!isDrawMode || !isDrawing) return;
+    const rect = canvas.getBoundingClientRect();
+    currentLinePreviewEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    redrawCanvas(); // 직선 미리보기
+});
+
+canvas.addEventListener("mouseup", (e) => {
+    if (!isDrawMode || !isDrawing) return;
+    const rect = canvas.getBoundingClientRect();
+    const lineEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+    drawnTrajectories.push([lineStart, lineEnd]);
+
+    isDrawing = false;
+    lineStart = null;
+    currentLinePreviewEnd = null;
+    redrawCanvas();
+});
+
+
+// === Canvas 다시 그리기 ===
+function redrawCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 기존 시공도(초록선 포함) 다시 그림
+    drawOnCanvas(globalTrajectories, globalGreenWindows, globalEndTime);
+
+    // 저장된 직선 궤적들 그리기
+    drawnTrajectories.forEach(path => {
+        ctx.beginPath();
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.moveTo(path[0].x, path[0].y);
+        ctx.lineTo(path[1].x, path[1].y);
+        ctx.stroke();
+    });
+
+    // 드래그 중 미리보기 직선
+    if (isDrawing && lineStart && currentLinePreviewEnd) {
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]); // 점선 미리보기
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.moveTo(lineStart.x, lineStart.y);
+        ctx.lineTo(currentLinePreviewEnd.x, currentLinePreviewEnd.y);
+        ctx.stroke();
+        ctx.setLineDash([]); // 점선 해제
+    }
+}
 
 document.getElementById("diagramCanvas").addEventListener("click", function(event) {
   const canvas = event.target;
@@ -279,6 +373,12 @@ async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
 
   const trajData = await loadCSV(trajUrl);
   const greenData = await loadCSV(greenUrl);
+
+  // 🔹 전역 변수에 저장
+  globalTrajectories = trajData;
+  globalGreenWindows = greenData;
+  globalEndTime = parseFloat(end_time);
+
   drawOnCanvas(trajData, greenData, parseFloat(end_time), direction, sa_num);
 }
 
@@ -315,7 +415,7 @@ function drawOnCanvas(trajectory, green_windows, end_time, direction = '', sa_nu
   const x_axis = plotLeft + 0.5;
 
   // *** 이 부분에 로그 추가 ***
-  console.log("plotLeft:", plotLeft, "convertX(0):", convertX(0), "plotRight:", plotRight);
+  // console.log("plotLeft:", plotLeft, "convertX(0):", convertX(0), "plotRight:", plotRight);
 
   // (1) Y축: 전체 위치 데이터에서 min/max 찾기
   let minPos = Infinity, maxPos = -Infinity;
@@ -334,8 +434,8 @@ function drawOnCanvas(trajectory, green_windows, end_time, direction = '', sa_nu
     }
 
   });
-  console.log("[Canvas] 불러온 green_windows 샘플:", green_windows.slice(0, 5));
-  console.log("[Canvas] 불러온 trajectory 샘플:", trajectory.slice(0, 5));
+  // console.log("[Canvas] 불러온 green_windows 샘플:", green_windows.slice(0, 5));
+  // console.log("[Canvas] 불러온 trajectory 샘플:", trajectory.slice(0, 5));
     // (궤적 컬러 팔레트)
   const COLORS = [
     "#1f77b4","#ff7f0e","#2ca02c","#d62728",
@@ -558,6 +658,11 @@ function calcTimeDiffByPosition(traj1, traj2) {
 
 // === 거리 계산 버튼 클릭 이벤트 ===
 document.getElementById("distanceBtn").addEventListener("click", function() {
+  if (!lastTrajectoryData || !lastGreenWindowData) {
+    alert("⚠️ 시공도를 먼저 불러오세요.");
+    return;
+  }
+
   if (selectedTrajectories.length !== 2) {
     document.getElementById("distanceResult").textContent = "궤적을 2개 선택하세요!";
     return;
