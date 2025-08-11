@@ -16,6 +16,17 @@ let globalGreenWindows = [];
 let globalTrajectories = [];
 let globalEndTime = 0;
 
+// === angle/speed hint용 전역 ===
+let scaleState = null;    // 캔버스 <-> 실세계 스케일
+let currentHint = null;   // 드래그 중 배지 내용/좌표
+
+// 삭제 모드
+let isDeleteDrawnMode = false;
+
+// 고정 속도 모드
+let isFixedSpeedMode = false;
+let fixedSpeedKph = null;
+
 window.drawTimeSpaceDiagram = drawTimeSpaceDiagram;
 window.drawCanvasFromCsv = drawCanvasFromCsv; // 필요시 사용
 
@@ -42,10 +53,6 @@ document.addEventListener("DOMContentLoaded", function() {
     outsideClickDeselects: false,
     pasteMode: 'overwrite',
     beforePaste: function(data, coords) {
-      // console.log("--- beforePaste 훅 실행 ---");
-      // console.log("클립보드 데이터 (원본):", data);
-      // console.log("붙여넣을 시작 셀 (좌표):", coords);
-      // console.log("------------------------");
     }
   });
 
@@ -148,13 +155,6 @@ document.addEventListener("DOMContentLoaded", function() {
       // Canvas 영역 표시
       document.getElementById("canvasSection").style.display = "block";
 
-        // Matplotlib 시공도 이미지 URL을 가져와서 표시
-        // const imgTag = `
-        //   <h2>Matplotlib 시공도 -> 궤적 이미지를 띄움.</h2>
-        //   <img src="${json.image_url}" width="800">
-        // `;
-        // document.getElementById("image-result").innerHTML = imgTag;
-
         // (추가) canvas 자동 호출
         if(json.file_prefix) {
           drawCanvasFromCsv(json.file_prefix, payload.end_time, payload.direction, payload.sa_num);
@@ -163,11 +163,6 @@ document.addEventListener("DOMContentLoaded", function() {
         alert("❌ 시공도 이미지 URL을 가져오지 못했습니다.");
       }
     })
-    // .catch(err => {
-    //   document.getElementById("loading").style.display = "none";
-    //   alert("❌ 시공도 생성 중 오류가 발생했습니다: " + err.message);
-    //   console.error(err);
-    // });
   });
 
   document.getElementById("saveExcelBtn").addEventListener("click", function(e) {
@@ -204,11 +199,50 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 });
 
-// 선 그리기 모드 토글
-document.getElementById("drawLineModeBtn").addEventListener("click", () => {
-  isDrawMode = !isDrawMode;
+// (신규) 토글 스위치로 상태 제어
+const drawToggle = document.getElementById("drawToggle");
+const drawStateLabel = document.getElementById("drawStateLabel");
+
+// 초기 상태
+isDrawMode = false;
+drawToggle.checked = false;
+drawStateLabel.textContent = "OFF";
+drawStateLabel.style.color = "#888";
+
+// 스위치 변경 시
+drawToggle.addEventListener("change", (e) => {
+  isDrawMode = e.target.checked;
+  drawStateLabel.textContent = isDrawMode ? "ON" : "OFF";
+  drawStateLabel.style.color = isDrawMode ? "#2e7d32" : "#888"; // ON이면 초록, OFF면 회색
   console.log("Draw mode:", isDrawMode);
 });
+
+// 삭제 모드
+const deleteDrawnToggle = document.getElementById("deleteDrawnToggle");
+const deleteDrawnLabel = document.getElementById("deleteDrawnLabel");
+
+deleteDrawnToggle.addEventListener("change", (e) => {
+  isDeleteDrawnMode = e.target.checked;
+  deleteDrawnLabel.textContent = isDeleteDrawnMode ? "ON" : "OFF";
+  deleteDrawnLabel.style.color = isDeleteDrawnMode ? "#d32f2f" : "#888";
+});
+
+// 고정 속도 모드
+const fixedSpeedToggle = document.getElementById("fixedSpeedToggle");
+const fixedSpeedLabel = document.getElementById("fixedSpeedLabel");
+const fixedSpeedValue = document.getElementById("fixedSpeedValue");
+
+fixedSpeedToggle.addEventListener("change", (e) => {
+  isFixedSpeedMode = e.target.checked;
+  fixedSpeedLabel.textContent = isFixedSpeedMode ? "ON" : "OFF";
+  fixedSpeedLabel.style.color = isFixedSpeedMode ? "#2e7d32" : "#888";
+});
+
+fixedSpeedValue.addEventListener("input", () => {
+  const val = parseFloat(fixedSpeedValue.value);
+  fixedSpeedKph = !isNaN(val) && val > 0 ? val : null;
+});
+
 
 // === Canvas 요소 ===
 const canvas = document.getElementById("diagramCanvas");
@@ -232,25 +266,171 @@ canvas.addEventListener("mousedown", (e) => {
 });
 
 canvas.addEventListener("mousemove", (e) => {
-    if (!isDrawMode || !isDrawing) return;
-    const rect = canvas.getBoundingClientRect();
-    currentLinePreviewEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    redrawCanvas(); // 직선 미리보기
+  if (!isDrawMode || !isDrawing) return;
+  const rect = canvas.getBoundingClientRect();
+  currentLinePreviewEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+  // 현재 드래그 구간의 시간, 거리
+  const t0 = pxToTime(lineStart.x);
+  const p0 = pxToPos(lineStart.y);
+  const t1 = pxToTime(currentLinePreviewEnd.x);
+  const p1 = pxToPos(currentLinePreviewEnd.y);
+
+  const dt = t1 - t0;
+  const dp = p1 - p0;
+
+  // 실제 궤적 기반 속도(m/s)
+  const vMps = dt !== 0 ? dp / dt : 0;
+  const vKph = vMps * 3.6;
+
+  
+  // ---- 제한속도 기반 각도 ----
+  let nearestSpeedKph = null;
+  let minDist = Infinity;
+  const tableData = hot.getData(); // Handsontable 입력 데이터
+  const headers = hot.getColHeader();
+
+  const idxDistance = headers.indexOf("distance_from_prev_meter");
+  const idxSpeed = headers.indexOf("speed_limit_kph");
+  let cumulative = 0;
+
+  for (let i = 0; i < tableData.length; i++) {
+    const dist = parseFloat(tableData[i][idxDistance]) || 0;
+    cumulative += dist;
+    const diff = Math.abs(cumulative - p0);
+    if (diff < minDist && !isNaN(tableData[i][idxSpeed])) {
+      minDist = diff;
+      nearestSpeedKph = parseFloat(tableData[i][idxSpeed]);
+    }
+  }
+
+  // 기울기 기반 각도
+  let angleDeg = Math.atan2(dp, dt) * 180 / Math.PI;
+  if (angleDeg < 0) angleDeg += 360;
+
+  currentHint = {
+    angleDeg,
+    vMps,
+    vKph,
+    x: currentLinePreviewEnd.x + 10,
+    y: currentLinePreviewEnd.y - 10
+  };
+
+  redrawCanvas();
 });
+
+function timeToPx(t) {
+  if (!scaleState) return 0;
+  const { plotLeft, plotWidth, end_time } = scaleState;
+  return plotLeft + (t / end_time) * plotWidth;
+}
+function posToPx(pos) {
+  if (!scaleState) return 0;
+  const { plotBottom, plotHeight, minPos, posRange } = scaleState;
+  return plotBottom - ((pos - minPos) / posRange) * plotHeight;
+}
 
 canvas.addEventListener("mouseup", (e) => {
     if (!isDrawMode || !isDrawing) return;
     const rect = canvas.getBoundingClientRect();
-    const lineEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    let lineEnd = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
-    drawnTrajectories.push([lineStart, lineEnd]);
+    // 기존 좌표 → 시간/거리 변환
+    const t0 = pxToTime(lineStart.x);
+    const p0 = pxToPos(lineStart.y);
+
+    let t1, p1;
+
+    if (isFixedSpeedMode && fixedSpeedKph) {
+      // 속도(km/h) → m/s
+      const vMps = fixedSpeedKph / 3.6;
+
+      // dt: 가로축 이동 시간(초)
+      const dx_time = pxToTime(lineEnd.x) - t0;
+
+      // dp: 세로축 이동 거리(m)
+      const dp_dist = vMps * dx_time;
+
+      p1 = p0 + dp_dist;
+      t1 = t0 + dx_time;
+
+      // 화면 좌표로 변환
+      lineEnd = { x: timeToPx(t1), y: posToPx(p1) };
+
+    } else {
+      t1 = pxToTime(lineEnd.x);
+      p1 = pxToPos(lineEnd.y);
+    }
+
+    const dt = t1 - t0;
+    const dp = p1 - p0;
+    const vMps = dt !== 0 ? dp / dt : 0;
+    const vKph = vMps * 3.6;
+    let angleDeg = Math.atan2(dp, dt) * 180 / Math.PI;
+    if (angleDeg < 0) angleDeg += 360;
+
+    // drawnTrajectories에 정보 함께 저장
+    drawnTrajectories.push({
+      start: lineStart,
+      end: lineEnd,
+      angleDeg,
+      vMps,
+      vKph
+    });
 
     isDrawing = false;
     lineStart = null;
     currentLinePreviewEnd = null;
+    currentHint = null;   // 🔹 드래그 종료 시 힌트 제거
     redrawCanvas();
 });
 
+canvas.addEventListener("click", (e) => {
+  if (!isDeleteDrawnMode) return;
+
+  const { x: clickX, y: clickY } = getCanvasCoords(e);
+  const tolerance = 5; // 선 근처 5px 허용
+
+  // drawnTrajectories에서 클릭한 선 찾기
+  for (let i = 0; i < drawnTrajectories.length; i++) {
+    const { start, end } = drawnTrajectories[i];
+
+    // 점과 선 사이의 최소 거리 계산
+    const dist = pointToLineDistance(clickX, clickY, start.x, start.y, end.x, end.y);
+    if (dist <= tolerance) {
+      drawnTrajectories.splice(i, 1); // 해당 선 삭제
+      redrawCanvas();
+      break;
+    }
+  }
+});
+
+// 점과 선분 사이 거리 계산 함수
+function pointToLineDistance(px, py, x1, y1, x2, y2) {
+  const A = px - x1;
+  const B = py - y1;
+  const C = x2 - x1;
+  const D = y2 - y1;
+
+  const dot = A * C + B * D;
+  const len_sq = C * C + D * D;
+  let param = -1;
+  if (len_sq !== 0) param = dot / len_sq;
+
+  let xx, yy;
+  if (param < 0) {
+    xx = x1; yy = y1;
+  } else if (param > 1) {
+    xx = x2; yy = y2;
+  } else {
+    xx = x1 + param * C;
+    yy = y1 + param * D;
+  }
+
+  const dx = px - xx;
+  const dy = py - yy;
+  return Math.sqrt(dx * dx + dy * dy);
+}
 
 // === Canvas 다시 그리기 ===
 function redrawCanvas() {
@@ -260,13 +440,31 @@ function redrawCanvas() {
     drawOnCanvas(globalTrajectories, globalGreenWindows, globalEndTime);
 
     // 저장된 직선 궤적들 그리기
-    drawnTrajectories.forEach(path => {
-        ctx.beginPath();
-        ctx.strokeStyle = "red";
-        ctx.lineWidth = 2;
-        ctx.moveTo(path[0].x, path[0].y);
-        ctx.lineTo(path[1].x, path[1].y);
-        ctx.stroke();
+    drawnTrajectories.forEach(traj => {
+      ctx.beginPath();
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 2;
+      ctx.moveTo(traj.start.x, traj.start.y);
+      ctx.lineTo(traj.end.x, traj.end.y);
+      ctx.stroke();
+
+      // 각도/속도 표시
+      const text = `θ ${traj.angleDeg.toFixed(1)}° | v ${traj.vMps.toFixed(2)} m/s (${traj.vKph.toFixed(1)} km/h)`;
+      ctx.save();
+      ctx.font = "12px 'Malgun Gothic'";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      const pad = 6;
+      const w = ctx.measureText(text).width + pad * 2;
+      const h = 20;
+      const tx = (traj.start.x + traj.end.x) / 2;
+      const ty = (traj.start.y + traj.end.y) / 2;
+
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(tx, ty - h, w, h);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(text, tx + pad, ty - 5);
+      ctx.restore();
     });
 
     // 드래그 중 미리보기 직선
@@ -280,7 +478,36 @@ function redrawCanvas() {
         ctx.stroke();
         ctx.setLineDash([]); // 점선 해제
     }
+
+    // 🔹 각도/속도 배지 렌더링
+    if (currentHint) {
+      const text = (() => {
+        const a = `θ ${currentHint.angleDeg.toFixed(1)}°`;
+        if (currentHint.vMps == null) return a;
+        return `${a} | v ${currentHint.vMps.toFixed(2)} m/s (${currentHint.vKph.toFixed(1)} km/h)`;
+      })();
+
+      ctx.save();
+      ctx.font = "12px 'Malgun Gothic'";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+
+      const pad = 6;
+      const w = ctx.measureText(text).width + pad * 2;
+      const h = 20;
+
+      // 배경 박스
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(currentHint.x, currentHint.y - h, w, h);
+
+      // 텍스트
+      ctx.fillStyle = "#fff";
+      ctx.fillText(text, currentHint.x + pad, currentHint.y - 5);
+      ctx.restore();
+    }
 }
+
+
 
 document.getElementById("diagramCanvas").addEventListener("click", function(event) {
   const canvas = event.target;
@@ -303,6 +530,7 @@ document.getElementById("diagramCanvas").addEventListener("click", function(even
       }
     }
   });
+  
   if (foundVehicle) {
     // 선택 로직: 이미 있으면 해제, 아니면 2개까지만 선택
     const idx = selectedTrajectories.indexOf(foundVehicle);
@@ -459,6 +687,16 @@ function drawOnCanvas(trajectory, green_windows, end_time, direction = '', sa_nu
     return plotBottom - ((pos - minPos) / posRange) * plotHeight;
   }
 
+  scaleState = {
+    plotLeft, plotRight, plotTop, plotBottom,
+    plotWidth, plotHeight,
+    minPos,              // 계산된 최소 거리
+    posRange: (maxPos - minPos) || 1,
+    end_time             // 현재 x축 끝(초)
+  };
+
+
+
   // (3) 신호등 선
   green_windows.forEach(row => {
     const y = convertY(parseFloat(row.cumulative_distance ?? row.position ?? 0));
@@ -602,11 +840,31 @@ function drawOnCanvas(trajectory, green_windows, end_time, direction = '', sa_nu
   // X축 눈금/라벨(플롯 아래)
   ctx.textAlign = "center";
   ctx.font = "14px 'Malgun Gothic'";
+
   for (let t = 0; t <= end_time; t += 100) {
     const x = convertX(t);
     ctx.fillText(`${t}`, x, plotBottom + 28); // plotBottom + 28 (네모 아래쪽 바깥에)
+    // 굵은 선
+    ctx.beginPath();
+    ctx.moveTo(x, plotBottom);
+    ctx.lineTo(x, plotBottom + 6);
+    ctx.stroke();
+ 
+  }
+  // 🔹 보조 눈금 (10초 단위)
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#474747ff"; // 회색
+  for (let t = 0; t <= end_time; t += 10) {
+    if (t % 100 === 0) continue; // 주 눈금은 건너뜀
+    const x = convertX(t);
+    ctx.beginPath();
+    ctx.moveTo(x, plotBottom);
+    ctx.lineTo(x, plotBottom + 3); // 짧은 눈금
+    ctx.stroke();
   }
 }
+
+
 
 function groupBy(array, key) {
   return array.reduce((result, item) => {
@@ -654,6 +912,18 @@ function calcTimeDiffByPosition(traj1, traj2) {
   const min = Math.min(...diffs);
   const max = Math.max(...diffs);
   return { avg, min, max };
+}
+
+// px -> 축 단위 변환
+function pxToTime(x) {
+  if (!scaleState) return 0;
+  const { plotLeft, plotWidth, end_time } = scaleState;
+  return ((x - plotLeft) / plotWidth) * end_time;
+}
+function pxToPos(y) {
+  if (!scaleState) return 0;
+  const { plotBottom, plotHeight, minPos, posRange } = scaleState;
+  return minPos + ((plotBottom - y) / plotHeight) * posRange;
 }
 
 // === 거리 계산 버튼 클릭 이벤트 ===
