@@ -63,6 +63,41 @@
     border: 1px solid #ddd;
     border-radius: 4px;
    }
+   /* 토글 스위치 기본 스타일 */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 56px;
+    height: 30px;
+    vertical-align: middle;
+  }
+  .switch input { display: none; }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #ccc;          /* OFF 회색 */
+    transition: .2s;
+    border-radius: 30px;
+  }
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 22px; width: 22px;
+    left: 4px; top: 4px;
+    background-color: white;
+    transition: .2s;
+    border-radius: 50%;
+  }
+
+  /* ON 상태 */
+  .switch input:checked + .slider { background-color: #4CAF50; } /* 초록 */
+  .switch input:checked + .slider:before { transform: translateX(26px); }
+
+  /* 둥근 스타일(가독성용) */
+  .slider.round { border-radius: 30px; }
+  .slider.round:before { border-radius: 50%; }
   </style>
 </head>
 
@@ -84,18 +119,58 @@
         <img src="/static/loading.gif" alt="로딩 중" width="50">
       </div>
       <div id="canvasSection" style="display:none; margin-top:20px;">
-        <h2>🎯 시공도</h2>
-          <div>두 궤적을 선택하시오.</div>
+        <h2>🎯 시공도: 두 궤적을 선택</h2>
     </form>
+    
+    <div>
+      <button id="distanceBtn" style="background:#0d01af;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-right:30px;cursor:pointer;"  type="button">
+        <div>두 궤적 간 거리, 시간 차이 계산</div>
+      </button>
+      <span id="distanceResult" style="font-size:16px;color:#000000;"></span>
+    </div>
+
       <canvas id="diagramCanvas" width="800" height="800" style="border:1px solid #444; margin-top: 20px;"></canvas>
         <div id="canvas-controls" style="margin-top:15px; text-align:right;"></div>
-          <!-- <button id="drawLineModeBtn" style="background:#4caf50;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-top:10px;cursor:pointer;">
-            ✏️ 선 그리기 모드 OFF
-          </button> -->
-          <button id="distanceBtn" style="background:#1976d2;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:16px;margin-right:30px;cursor:pointer;">
-            두 궤적 간 거리, 시간 차이 계산
-          </button>
-          <span id="distanceResult" style="font-size:16px;color:#000000;"></span>
+
+          <!-- 고정 속도 모드 토글 -->
+          <h3>고정 속도 모드</h3>
+          <div style="margin-bottom: 10px;">
+            <label class="switch" style="margin-right:10px;">
+              <input type="checkbox" id="fixedSpeedToggle">
+              <span class="slider round"></span>
+            </label>
+            <span id="fixedSpeedLabel" style="font-weight:600;color:#888;">OFF</span>
+            <input type="number" id="fixedSpeedValue" placeholder="km/h" style="width:80px; margin-left:10px;">
+          </div>
+
+          <!-- 선 그리기 모드 토글 스위치 -->
+          <h3>선 그리기 모드 토클</h3>
+          <div style="margin-bottom: 10px;">
+            <label class="switch" style="margin-right:10px;">
+              <input type="checkbox" id="drawToggle">
+              <span class="slider round"></span>
+            </label>
+            <span id="drawStateLabel" style="font-weight:600;color:#888;">OFF</span>
+          </div>
+
+          <!-- 내가 그린 선 삭제 모드 -->
+          <h3>선 삭제 모드 토클</h3>
+          <div style="margin-top:10px;">
+            <label class="switch" style="margin-right:10px;">
+              <input type="checkbox" id="deleteDrawnToggle">
+              <span class="slider round"></span>
+            </label>
+            <span id="deleteDrawnLabel" style="font-weight:600;color:#888;">OFF</span>
+          </div>
+
+          <h3>궤적 이동 모드 토글</h3>
+          <div style="margin-top:10px;">
+            <label class="switch" style="margin-right:10px;">
+              <input type="checkbox" id="moveToggle">
+              <span class="slider round"></span>
+            </label>
+            <span id="moveStateLabel" style="font-weight:600;color:#888;">OFF</span>
+          </div>
         </div>
       </div>
     <br>
