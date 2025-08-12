@@ -41,7 +41,7 @@ def preprocess_df(data):
 
     return df
 
-# UPLOAD_FOLDER = 'Web/static/input'
+UPLOAD_FOLDER = 'Web/static/input'
 OUTPUT_FOLDER = 'Web/static/output'
 # os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # os.makedirs(OUTPUT_FOLDER, exist_ok=True)
