@@ -16,22 +16,19 @@ let isMoveMode = false;
 let isDrawing = false;
 let lineStart = null;
 let currentLinePreviewEnd = null;
-// ▼▼▼ 삭제: drawnTrajectories는 더 이상 사용되지 않습니다.
-// let drawnTrajectories = []; 
 let currentHint = null;
 
-// === 이동 관련 변수 ===
-// ▼▼▼ 수정: 모든 궤적을 selectedAutoTrajectoryId로 관리합니다.
-let selectedAutoTrajectoryId = null;
+// === 이동 및 선택 관련 변수 ===
+let selectedAutoTrajectoryId = null; // 이동/수정을 위해 선택된 단일 궤적
 let isMoving = false;
 let dragStartPoint = null;
+// ▼▼▼ 추가: 비교를 위해 선택된 두 궤적의 ID를 저장할 배열
+let comparisonTrajectoryIds = []; 
 
 // === 데이터 및 스케일 변수 ===
 let globalGreenWindows = [];
 let globalEndTime = 0;
 let scaleState = null;
-// ▼▼▼ 수정: globalAutoTrajectories도 직접 사용하지 않고 autoTrajectoriesById로 통합됩니다.
-// let globalAutoTrajectories = []; 
 let autoTrajectoriesById = {}; 
 let intersectionData = []; 
 
@@ -43,8 +40,6 @@ let globalSaNum = '';
 let isFixedSpeedMode = false;
 let fixedSpeedKph = null;
 
-// ▼▼▼ 삭제: comparisonIndices는 더 이상 사용되지 않습니다.
-// let comparisonIndices = [];
 
 // ==================================================================
 //  DOM 로드 후 초기 설정
@@ -63,9 +58,6 @@ document.addEventListener("DOMContentLoaded", function () {
     document.getElementById("form").addEventListener("submit", handleFormSubmit);
     document.getElementById("saveExcelBtn").addEventListener("click", handleSaveExcel);
     setupModeToggles();
-
-    // ▼▼▼ 삭제: 거리 계산 버튼 이벤트 리스너 제거
-    // document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
 });
 
 
@@ -171,17 +163,48 @@ function setupModeToggles() {
         fixedSpeedKph = !isNaN(val) && val > 0 ? val : null;
     });
 
-    // ▼▼▼ 삭제: 거리 계산 버튼은 더 이상 사용하지 않음
-    // document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
+    // ▼▼▼ 추가: 거리 계산 버튼 이벤트 리스너 활성화
+    document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
 }
 
-// ▼▼▼ 삭제: 거리 계산 함수는 더 이상 사용하지 않음
-// function calculateAndShowDifference() { ... }
+// ▼▼▼ 추가: 거리/시간 차이 계산 함수 (로직 변경)
+function calculateAndShowDifference() {
+    if (comparisonTrajectoryIds.length !== 2) {
+        alert("⚠️ 비교할 두 개의 궤적을 먼저 선택해주세요.");
+        return;
+    }
+
+    const [id1, id2] = comparisonTrajectoryIds;
+    let results = [];
+
+    // 모든 교차로에 대해 시간 차이 계산
+    for (const intersection of intersectionData) {
+        const pos = intersection.cumulative_distance;
+        
+        const time1 = getCrossingTime(id1, pos);
+        const time2 = getCrossingTime(id2, pos);
+
+        if (time1 !== null && time2 !== null) {
+            const timeDiff = Math.abs(time1 - time2);
+            results.push(`<strong>${intersection.intersection_name}</strong>: ${timeDiff.toFixed(1)}초`);
+        }
+    }
+
+    const resultEl = document.getElementById("distanceResult");
+    if (results.length > 0) {
+        resultEl.innerHTML = "<strong>구간별 시간 차이:</strong><br>" + results.join("<br>");
+    } else {
+        resultEl.textContent = "두 궤적이 공통으로 지나는 교차로가 없습니다.";
+    }
+}
 
 function setMode(activeMode) {
     isDrawMode = false;
     isDeleteDrawnMode = false;
     isMoveMode = false;
+
+    // 모드를 변경하면, 비교 선택 상태를 초기화
+    comparisonTrajectoryIds = [];
 
     Object.values(toggles).forEach(elements => {
         elements.input.checked = false;
@@ -198,6 +221,7 @@ function setMode(activeMode) {
         toggles[activeMode].label.textContent = "ON";
         toggles[activeMode].label.style.color = "#2e7d32";
     }
+    redrawCanvas(); // 모드 변경 시 하이라이트 해제를 위해 다시 그림
 }
 
 
@@ -221,7 +245,6 @@ canvas.addEventListener("mousedown", (e) => {
         isDrawing = true;
 
     } else if (isMoveMode) {
-        // ▼▼▼ 수정: 모든 궤적 선택 로직 통합
         const clickedAutoId = findClickedAutoTrajectoryId(coords);
         if (clickedAutoId) {
             selectedAutoTrajectoryId = clickedAutoId;
@@ -229,8 +252,21 @@ canvas.addEventListener("mousedown", (e) => {
             dragStartPoint = coords;
         }
         redrawCanvas();
-    } 
-    // ▼▼▼ 삭제: 비교 모드 로직 제거
+    } else {
+        // ▼▼▼ 추가: 이동 모드가 아닐 때, 비교할 궤적 선택
+        const clickedId = findClickedAutoTrajectoryId(coords);
+        if (clickedId) {
+            const index = comparisonTrajectoryIds.indexOf(clickedId);
+            if (index > -1) {
+                // 이미 선택된 궤적이면 선택 해제
+                comparisonTrajectoryIds.splice(index, 1);
+            } else if (comparisonTrajectoryIds.length < 2) {
+                // 2개 미만이면 선택 목록에 추가
+                comparisonTrajectoryIds.push(clickedId);
+            }
+        }
+        redrawCanvas();
+    }
 });
 
 canvas.addEventListener("mousemove", (e) => {
@@ -241,7 +277,6 @@ canvas.addEventListener("mousemove", (e) => {
         updateDrawingHint(coords);
         redrawCanvas();
     } else if (isMoveMode && isMoving) {
-        // ▼▼▼ 수정: 이동 로직 통합
         if (selectedAutoTrajectoryId) {
             const dx = coords.x - dragStartPoint.x;
             const dy = coords.y - dragStartPoint.y;
@@ -262,15 +297,12 @@ canvas.addEventListener("mousemove", (e) => {
 });
 
 canvas.addEventListener("mouseup", (e) => {
-    // ▼▼▼ 수정: 그리기 모드 종료 시 재계산 로직 호출
     if (isDrawMode && isDrawing) {
         const startTime = pxToTime(lineStart.x);
         const startPosition = pxToPos(lineStart.y);
 
-        // 새 궤적 생성
         const newPath = recalculateTrajectory(startTime, startPosition);
         
-        // 고유 ID 부여 및 저장
         const newId = `manual_${Date.now()}`;
         autoTrajectoriesById[newId] = newPath;
 
@@ -297,15 +329,18 @@ canvas.addEventListener("mouseup", (e) => {
 });
 
 canvas.addEventListener("click", (e) => {
-    // ▼▼▼ 수정: 삭제 로직 통합
     if (isDeleteDrawnMode) {
         const coords = getCanvasCoords(e);
         const idToDelete = findClickedAutoTrajectoryId(coords);
         if (idToDelete) {
             delete autoTrajectoriesById[idToDelete];
-            // 선택 상태 초기화
             if (selectedAutoTrajectoryId === idToDelete) {
                 selectedAutoTrajectoryId = null;
+            }
+            // 비교 목록에서도 제거
+            const compIndex = comparisonTrajectoryIds.indexOf(idToDelete);
+            if (compIndex > -1) {
+                comparisonTrajectoryIds.splice(compIndex, 1);
             }
             redrawCanvas();
         }
@@ -315,6 +350,32 @@ canvas.addEventListener("click", (e) => {
 // ==================================================================
 //  헬퍼 및 계산 함수
 // ==================================================================
+
+// ▼▼▼ 추가: 특정 위치를 지나는 시간을 계산하는 함수 (선형 보간)
+function getCrossingTime(vehicleId, position) {
+    const path = autoTrajectoriesById[vehicleId];
+    if (!path || path.length < 2) return null;
+
+    for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i+1];
+
+        // 궤적이 해당 위치를 지나는 구간(p1, p2)을 찾음
+        if ((p1.position <= position && p2.position >= position) || (p1.position >= position && p2.position <= position)) {
+            const posRange = p2.position - p1.position;
+            // 수평선(대기) 구간인 경우
+            if (Math.abs(posRange) < 1e-6) {
+                continue; // 대기 중에는 교차로를 '통과'하는 것이 아니므로 다음 지점 확인
+            }
+            // 선형 보간으로 정확한 통과 시간 계산
+            const fraction = (position - p1.position) / posRange;
+            const time = p1.time + (p2.time - p1.time) * fraction;
+            return time;
+        }
+    }
+    return null; // 궤적이 해당 위치를 지나지 않음
+}
+
 
 function recalculateTrajectory(startTime, startPosition) {
     const newPath = [];
@@ -326,16 +387,13 @@ function recalculateTrajectory(startTime, startPosition) {
     let startIntersectionIndex = intersectionData.findIndex(i => i.cumulative_distance >= currentPos);
     if (startIntersectionIndex === -1) startIntersectionIndex = 0;
     
-    // 시작 교차로에서 이전 교차로까지의 거리는 0으로 처리
     if (startIntersectionIndex > 0) {
         currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
     }
 
-
     for (let i = startIntersectionIndex; i < intersectionData.length; i++) {
         const intersection = intersectionData[i];
         
-        // 현재 위치에서 다음 교차로까지의 거리
         const dist = intersection.cumulative_distance - currentPos;
         if (dist <= 0) continue;
 
@@ -346,7 +404,6 @@ function recalculateTrajectory(startTime, startPosition) {
         let arrivalTime = currentTime + travelTime;
         const nextPos = intersection.cumulative_distance;
 
-        // 이동 구간(경사) 보간
         const timePoints = Array.from({length: Math.round(travelTime) + 1}, (_, j) => currentTime + j);
         timePoints.push(arrivalTime);
         for(const t of timePoints) {
@@ -375,7 +432,6 @@ function recalculateTrajectory(startTime, startPosition) {
 
             if (futureGreens.length > 0) {
                 const nextGreenStart = futureGreens[0].green_start_time;
-                // 대기 구간(수평) 보간
                 const waitPoints = Array.from({length: Math.round(nextGreenStart - arrivalTime) + 1}, (_, j) => arrivalTime + j);
                 for(const t of waitPoints) {
                     if (t <= nextGreenStart) newPath.push({ time: t, position: currentPos });
@@ -408,9 +464,6 @@ function findClickedAutoTrajectoryId(coords) {
     return null;
 }
 
-// ▼▼▼ 삭제: findClickedTrajectoryIndex는 더 이상 사용하지 않음
-// function findClickedTrajectoryIndex(coords) { ... }
-
 function pointToLineDistance(px, py, x1, y1, x2, y2) {
     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
     const dot = A * C + B * D;
@@ -423,11 +476,7 @@ function pointToLineDistance(px, py, x1, y1, x2, y2) {
     return Math.sqrt((px - xx) ** 2 + (py - yy) ** 2);
 }
 
-// ▼▼▼ 삭제: updateTrajectoryData는 더 이상 사용하지 않음
-// function updateTrajectoryData(traj) { ... }
-
 function updateDrawingHint(coords) {
-    // 힌트 기능은 단순화하여 위치만 표시
     currentHint = { x: coords.x + 10, y: coords.y - 10 };
 }
 
@@ -445,13 +494,17 @@ function redrawCanvas() {
 
         for (const id in autoTrajectoriesById) {
             const path = autoTrajectoriesById[id].sort((a, b) => a.time - b.time);
-
-            if (id === selectedAutoTrajectoryId) {
-                ctx.strokeStyle = "#e91e63"; 
-                ctx.lineWidth = 2.5;
+            
+            // ▼▼▼ 수정: 선택 하이라이트 로직 변경 (이동용/비교용)
+            if (isMoveMode && id === selectedAutoTrajectoryId) {
+                ctx.strokeStyle = "#e91e63"; // 이동용 선택은 분홍색
+                ctx.lineWidth = 3;
+            } else if (comparisonTrajectoryIds.includes(id)) {
+                ctx.strokeStyle = "#0d01af"; // 비교용 선택은 진한 파랑색
+                ctx.lineWidth = 3;
             } else {
                 ctx.strokeStyle = trajectoryColors[colorIndex % trajectoryColors.length];
-                ctx.lineWidth = 1.5; // 선 굵기 1.5로 일괄 조정
+                ctx.lineWidth = 1.5;
             }
             ctx.setLineDash([]);
             
@@ -466,8 +519,6 @@ function redrawCanvas() {
             colorIndex++;
         }
     }
-    
-    // ▼▼▼ 삭제: drawnTrajectories 그리기 로직 제거
     
     if (isDrawMode && isDrawing && lineStart && currentLinePreviewEnd) {
         ctx.beginPath();
@@ -484,11 +535,7 @@ function redrawCanvas() {
     }
 }
 
-// ▼▼▼ 삭제: drawTextOnTrajectory는 더 이상 사용하지 않음
-// function drawTextOnTrajectory(traj) { ... }
-
 function drawHintBadge(hint) {
-    // 힌트 뱃지는 더 이상 속도/각도를 표시하지 않음
     const text = `궤적 시작점`;
     drawInfoBadge(text, hint.x, hint.y);
 }
@@ -515,7 +562,7 @@ function pxToPos(y) { return scaleState ? scaleState.minPos + ((scaleState.plotB
 
 
 // ==================================================================
-//  CSV 로드 및 Canvas 배경 그리기
+//  CSV 로드 및 Canvas 배경 그리기 (변경 없음)
 // ==================================================================
 
 async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
@@ -527,6 +574,7 @@ async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
     globalEndTime = parseFloat(end_time);
     autoTrajectoriesById = {};
     selectedAutoTrajectoryId = null;
+    comparisonTrajectoryIds = [];
     
     const greenUrl = `/static/output/${filePrefix}_green_windows.csv`;
     const trajUrl = `/static/output/${filePrefix}_trajectories.csv`;
