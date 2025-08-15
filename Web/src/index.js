@@ -19,12 +19,11 @@ let currentLinePreviewEnd = null;
 let currentHint = null;
 
 // === 이동 및 선택 관련 변수 ===
-let selectedAutoTrajectoryId = null; 
+let selectedAutoTrajectoryId = null; // 이동/수정을 위해 선택된 단일 궤적
 let isMoving = false;
 let dragStartPoint = null;
+// ▼▼▼ 추가: 비교를 위해 선택된 두 궤적의 ID를 저장할 배열
 let comparisonTrajectoryIds = []; 
-// ▼▼▼ 추가: 계산된 비교 결과를 저장할 배열
-let comparisonResults = [];
 
 // === 데이터 및 스케일 변수 ===
 let globalGreenWindows = [];
@@ -43,7 +42,7 @@ let fixedSpeedKph = null;
 
 
 // ==================================================================
-//  DOM 로드 후 초기 설정 (변경 없음)
+//  DOM 로드 후 초기 설정
 // ==================================================================
 document.addEventListener("DOMContentLoaded", function () {
     const container = document.getElementById('hot');
@@ -164,20 +163,21 @@ function setupModeToggles() {
         fixedSpeedKph = !isNaN(val) && val > 0 ? val : null;
     });
 
+    // ▼▼▼ 추가: 거리 계산 버튼 이벤트 리스너 활성화
     document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
 }
 
-// ▼▼▼ 수정: 계산 결과를 전역 변수에 저장하고 캔버스를 다시 그리도록 변경
+// ▼▼▼ 추가: 거리/시간 차이 계산 함수 (로직 변경)
 function calculateAndShowDifference() {
     if (comparisonTrajectoryIds.length !== 2) {
         alert("⚠️ 비교할 두 개의 궤적을 먼저 선택해주세요.");
         return;
     }
-    
-    // 이전에 계산된 결과 초기화
-    comparisonResults = [];
-    const [id1, id2] = comparisonTrajectoryIds;
 
+    const [id1, id2] = comparisonTrajectoryIds;
+    let results = [];
+
+    // 모든 교차로에 대해 시간 차이 계산
     for (const intersection of intersectionData) {
         const pos = intersection.cumulative_distance;
         
@@ -185,19 +185,17 @@ function calculateAndShowDifference() {
         const time2 = getCrossingTime(id2, pos);
 
         if (time1 !== null && time2 !== null) {
-            // 계산 결과를 배열에 저장
-            comparisonResults.push({
-                pos: pos,
-                time1: time1,
-                time2: time2,
-                diff: Math.abs(time1 - time2)
-            });
+            const timeDiff = Math.abs(time1 - time2);
+            results.push(`<strong>${intersection.intersection_name}</strong>: ${timeDiff.toFixed(1)}초`);
         }
     }
-    
-    // 텍스트 결과 표시 대신 캔버스 다시 그리기 호출
-    document.getElementById("distanceResult").innerHTML = ''; // 기존 텍스트 결과창 비우기
-    redrawCanvas();
+
+    const resultEl = document.getElementById("distanceResult");
+    if (results.length > 0) {
+        resultEl.innerHTML = "<strong>구간별 시간 차이:</strong><br>" + results.join("<br>");
+    } else {
+        resultEl.textContent = "두 궤적이 공통으로 지나는 교차로가 없습니다.";
+    }
 }
 
 function setMode(activeMode) {
@@ -205,8 +203,8 @@ function setMode(activeMode) {
     isDeleteDrawnMode = false;
     isMoveMode = false;
 
+    // 모드를 변경하면, 비교 선택 상태를 초기화
     comparisonTrajectoryIds = [];
-    comparisonResults = []; // ▼▼▼ 추가: 모드 변경 시 계산 결과도 초기화
 
     Object.values(toggles).forEach(elements => {
         elements.input.checked = false;
@@ -223,12 +221,12 @@ function setMode(activeMode) {
         toggles[activeMode].label.textContent = "ON";
         toggles[activeMode].label.style.color = "#2e7d32";
     }
-    redrawCanvas();
+    redrawCanvas(); // 모드 변경 시 하이라이트 해제를 위해 다시 그림
 }
 
 
 // ==================================================================
-//  캔버스 및 마우스 이벤트 (mousedown 핸들러 수정)
+//  캔버스 및 마우스 이벤트
 // ==================================================================
 
 const canvas = document.getElementById("diagramCanvas");
@@ -255,14 +253,15 @@ canvas.addEventListener("mousedown", (e) => {
         }
         redrawCanvas();
     } else {
+        // ▼▼▼ 추가: 이동 모드가 아닐 때, 비교할 궤적 선택
         const clickedId = findClickedAutoTrajectoryId(coords);
         if (clickedId) {
-            // ▼▼▼ 수정: 비교 선택 시, 계산 결과 초기화
-            comparisonResults = []; 
             const index = comparisonTrajectoryIds.indexOf(clickedId);
             if (index > -1) {
+                // 이미 선택된 궤적이면 선택 해제
                 comparisonTrajectoryIds.splice(index, 1);
             } else if (comparisonTrajectoryIds.length < 2) {
+                // 2개 미만이면 선택 목록에 추가
                 comparisonTrajectoryIds.push(clickedId);
             }
         }
@@ -338,6 +337,7 @@ canvas.addEventListener("click", (e) => {
             if (selectedAutoTrajectoryId === idToDelete) {
                 selectedAutoTrajectoryId = null;
             }
+            // 비교 목록에서도 제거
             const compIndex = comparisonTrajectoryIds.indexOf(idToDelete);
             if (compIndex > -1) {
                 comparisonTrajectoryIds.splice(compIndex, 1);
@@ -351,7 +351,7 @@ canvas.addEventListener("click", (e) => {
 //  헬퍼 및 계산 함수
 // ==================================================================
 
-// ▼▼▼ 수정: 계산 누락을 방지하기 위해 로직 보강
+// ▼▼▼ 추가: 특정 위치를 지나는 시간을 계산하는 함수 (선형 보간)
 function getCrossingTime(vehicleId, position) {
     const path = autoTrajectoriesById[vehicleId];
     if (!path || path.length < 2) return null;
@@ -360,26 +360,20 @@ function getCrossingTime(vehicleId, position) {
         const p1 = path[i];
         const p2 = path[i+1];
 
-        // 궤적의 한 점이 정확히 교차로 위치와 일치하는 경우
-        if (Math.abs(p1.position - position) < 1e-6) {
-            return p1.time;
-        }
-
-        // 궤적의 두 점 사이로 교차로 위치가 있는 경우 (선형 보간)
-        if ((p1.position < position && p2.position > position) || (p1.position > position && p2.position < position)) {
+        // 궤적이 해당 위치를 지나는 구간(p1, p2)을 찾음
+        if ((p1.position <= position && p2.position >= position) || (p1.position >= position && p2.position <= position)) {
             const posRange = p2.position - p1.position;
-            if (Math.abs(posRange) < 1e-6) continue;
-
+            // 수평선(대기) 구간인 경우
+            if (Math.abs(posRange) < 1e-6) {
+                continue; // 대기 중에는 교차로를 '통과'하는 것이 아니므로 다음 지점 확인
+            }
+            // 선형 보간으로 정확한 통과 시간 계산
             const fraction = (position - p1.position) / posRange;
             const time = p1.time + (p2.time - p1.time) * fraction;
             return time;
         }
     }
-    // 마지막 점 확인
-    if (Math.abs(path[path.length - 1].position - position) < 1e-6) {
-        return path[path.length - 1].time;
-    }
-    return null;
+    return null; // 궤적이 해당 위치를 지나지 않음
 }
 
 
@@ -393,9 +387,9 @@ function recalculateTrajectory(startTime, startPosition) {
     let startIntersectionIndex = intersectionData.findIndex(i => i.cumulative_distance >= currentPos);
     if (startIntersectionIndex === -1) startIntersectionIndex = 0;
     
-    if (startIntersectionIndex > 0) {
-        currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
-    }
+    // if (startIntersectionIndex > 0) {
+    //     currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
+    // }
 
     for (let i = startIntersectionIndex; i < intersectionData.length; i++) {
         const intersection = intersectionData[i];
@@ -490,40 +484,6 @@ function updateDrawingHint(coords) {
 //  캔버스 렌더링
 // ==================================================================
 
-// ▼▼▼ 추가: 계산 결과를 캔버스에 그리는 함수
-function drawComparisonResults() {
-    if (comparisonResults.length === 0) return;
-
-    ctx.save();
-    ctx.strokeStyle = '#d32f2f'; // 빨간색 계열
-    ctx.fillStyle = '#d32f2f';
-    ctx.font = "bold 12px 'Malgun Gothic'";
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-
-    comparisonResults.forEach(result => {
-        const y = posToPx(result.pos);
-        const x1 = timeToPx(result.time1);
-        const x2 = timeToPx(result.time2);
-
-        // 두 궤적을 잇는 점선 그리기
-        ctx.setLineDash([2, 3]);
-        ctx.beginPath();
-        ctx.moveTo(x1, y);
-        ctx.lineTo(x2, y);
-        ctx.stroke();
-        ctx.setLineDash([]); // 점선 스타일 초기화
-
-        // 시간 차이 텍스트 그리기
-        const text = `t = ${result.diff.toFixed(1)}s`;
-        const midX = (x1 + x2) / 2;
-        ctx.fillText(text, midX, y - 4);
-    });
-
-    ctx.restore();
-}
-
-
 function redrawCanvas() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawOnCanvas(globalGreenWindows, globalEndTime, globalDirection, globalSaNum);
@@ -535,8 +495,9 @@ function redrawCanvas() {
         for (const id in autoTrajectoriesById) {
             const path = autoTrajectoriesById[id].sort((a, b) => a.time - b.time);
             
+            // ▼▼▼ 수정: 선택 하이라이트 로직 변경 (이동용/비교용)
             if (isMoveMode && id === selectedAutoTrajectoryId) {
-                ctx.strokeStyle = "#e91e63";
+                ctx.strokeStyle = "#e91e63"; // 이동용 선택은 분홍색
                 ctx.lineWidth = 3;
             } else if (comparisonTrajectoryIds.includes(id)) {
                 ctx.strokeStyle = "#0d01af"; // 비교용 선택은 진한 파랑색
@@ -558,9 +519,6 @@ function redrawCanvas() {
             colorIndex++;
         }
     }
-
-    // ▼▼▼ 추가: 계산 결과 시각화 함수 호출
-    drawComparisonResults();
     
     if (isDrawMode && isDrawing && lineStart && currentLinePreviewEnd) {
         ctx.beginPath();
@@ -617,7 +575,6 @@ async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
     autoTrajectoriesById = {};
     selectedAutoTrajectoryId = null;
     comparisonTrajectoryIds = [];
-    comparisonResults = []; // ▼▼▼ 추가: CSV 로드 시 계산 결과 초기화
     
     const greenUrl = `/static/output/${filePrefix}_green_windows.csv`;
     const trajUrl = `/static/output/${filePrefix}_trajectories.csv`;

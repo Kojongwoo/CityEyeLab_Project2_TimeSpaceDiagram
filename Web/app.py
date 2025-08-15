@@ -4,16 +4,20 @@ import os, io
 from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
-# 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
-# js 수정 후 npx webpack --mode=development
+# 현재 파일(app.py)의 위치를 기준으로 절대 경로 설정
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+OUTPUT_DIR = os.path.join(STATIC_DIR, 'output')
 
 # Webpack 빌드 결과물(bundle.js)을 Flask가 서빙할 수 있도록 설정
-app = Flask(__name__, static_folder='static', static_url_path='/static')
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static') 
 
 # 번들 JS는 따로 dist 폴더에서 서빙
 @app.route('/dist/<path:filename>')
 def serve_dist(filename):
-    return send_from_directory('dist', filename)
+    # ▼▼▼ 수정: dist 폴더의 경로를 app.py와 같은 위치로 수정합니다.
+    dist_dir = os.path.join(BASE_DIR, 'dist')
+    return send_from_directory(dist_dir, filename)
 
 def preprocess_df(data):
     columns = [
@@ -25,14 +29,12 @@ def preprocess_df(data):
     df = pd.DataFrame(data, columns=columns)
     df = df.dropna(how='all')
 
-    # 숫자형 변환
     num_cols = ["order_num", "SA_num", "distance_from_prev_meter", "cycle_length_sec",
                 "green_start_sec", "green_duration_sec", "offset_sec", "speed_limit_kph"]
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # nullable 정수형 변환
     integer_cols = ["order_num", "SA_num", "cycle_length_sec", "green_start_sec",
                     "green_duration_sec", "offset_sec"]
     for col in integer_cols:
@@ -41,19 +43,14 @@ def preprocess_df(data):
 
     return df
 
-UPLOAD_FOLDER = 'Web/static/input'
-OUTPUT_FOLDER = 'Web/static/output'
-# os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-# os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
 
-# 기존 정적 파일 서빙은 그대로 유지
 @app.route('/static/output/<filename>')
 def serve_output_file(filename):
-    return send_from_directory(OUTPUT_FOLDER, filename)
+    return send_from_directory(OUTPUT_DIR, filename)
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -61,50 +58,40 @@ def generate():
         content = request.get_json()
         data = content['data']
         direction = content['direction']
-        # sa_num과 end_time 값의 유효성 검사 및 기본값 설정
+        
         sa_num_input = content.get('sa_num')
-        print("[백엔드] 프론트에서 받은 sa_num_input:", sa_num_input)
-
-
-        if sa_num_input: # 빈 문자열이 아닌 경우에만 변환 시도
+        if sa_num_input:
             try:
                 sa_num = int(float(sa_num_input))
-            except ValueError:
+            except (ValueError, TypeError):
                 sa_num = None
         else:
             sa_num = None
             
-        print("[백엔드] 실제 draw에 들어가는 sa_num:", sa_num)
-
         end_time_input = content.get('end_time')
-        if end_time_input: # 빈 문자열이 아닌 경우에만 변환 시도
+        if end_time_input:
             try:
                 end_time = int(float(end_time_input))
-            except ValueError:
-                end_time = 1800 # 변환 실패 시 기본값
+            except (ValueError, TypeError):
+                end_time = 1800
         else:
-            end_time = 1800 # 입력값이 없으면 기본값
+            end_time = 1800
 
         df = preprocess_df(data)
 
-        # 📌 핵심: 사용자 입력 파일을 사용하는 draw 함수 실행
         import time_space_diagram_trajectory as tsd
         tsd.df = df
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         sa_str = f"SA{sa_num}" if sa_num is not None else 'all'
         output_name = f"diagram_{direction}_{sa_str}_{timestamp}.png"
-        output_path = os.path.join(OUTPUT_FOLDER, output_name)
-        image_url = f"/static/output/{output_name}"
-
-        # draw_time_space_diagram 함수 호출 전에 인자가 올바른지 다시 확인
-        print(f"[백엔드] draw_time_space_diagram({direction}, {output_name}, sa_num={sa_num}, end_time={end_time})")
+        
         tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
         
+        image_url = f"/static/output/{output_name}"
         return jsonify({"image_url": image_url, "file_prefix": output_name.replace('.png','')})
     except Exception as e:
         print(f"❌ 시공도 생성 중 오류 발생: {e}")
-        # 오류 발생 시 클라이언트에 명확한 메시지를 전달
         return jsonify({"error": f"시공도 생성 실패. 오류: {str(e)}"}), 500
         
     
@@ -116,28 +103,25 @@ def generate_json():
         direction = content['direction']
         
         sa_num_input = content.get('sa_num')
-        # sa_num 처리
         if sa_num_input:
             try:
                 sa_num = int(float(sa_num_input))
-            except ValueError:
+            except (ValueError, TypeError):
                 sa_num = None
         else:
             sa_num = None
 
         end_time_input = content.get('end_time')
-        # end_time 처리
         if end_time_input:
             try:
                 end_time = int(float(end_time_input))
-            except ValueError:
+            except (ValueError, TypeError):
                 end_time = 1800
         else:
             end_time = 1800
 
         df = preprocess_df(data)
 
-        # draw 함수 실행
         import time_space_diagram_trajectory as tsd
         tsd.df = df
 
@@ -146,10 +130,9 @@ def generate_json():
         sa_str = f"SA{sa_num}" if sa_num is not None else 'all'
         output_basename = f"diagram_{direction}_{sa_str}_{timestamp}"
 
-        # 🔥 draw 함수 호출 (이미지 저장은 하지만 쓰진 않음)
         tsd.draw_time_space_diagram(direction, f"{output_basename}.png", sa_num, end_time, with_trajectory=True)
-        file_prefix = output_basename.replace('.png', '')  # 'diagram_서동_SA13_20250805155730' 형태
-        # 🔁 생성된 CSV 경로 반환
+
+        file_prefix = output_basename.replace('.png', '')
         traj_csv_url = f"/static/output/{output_basename}_trajectories.csv"
         green_csv_url = f"/static/output/{output_basename}_green_windows.csv"
 
@@ -174,11 +157,11 @@ def save_excel():
     df = pd.DataFrame(rows, columns=headers)
     df = df.fillna("")
 
-    # 현재 시간
     now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     sa_str = f"SA{sa_num}" if sa_num else "전체"
     filename = f"{direction}_{sa_str}_{end_time}초_{now}.csv"
-    full_path = os.path.join("Web", "static", "output", filename) # 'static' 폴더 경로 수정
+    
+    full_path = os.path.join(OUTPUT_DIR, filename)
 
     df.to_csv(full_path, index=False, encoding="utf-8-sig")
 
