@@ -4,6 +4,9 @@ import os, io
 from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
+# 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
+# js 수정 후 npx webpack --mode=development
+
 # 현재 파일(app.py)의 위치를 기준으로 절대 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, 'static')

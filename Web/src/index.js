@@ -387,9 +387,9 @@ function recalculateTrajectory(startTime, startPosition) {
     let startIntersectionIndex = intersectionData.findIndex(i => i.cumulative_distance >= currentPos);
     if (startIntersectionIndex === -1) startIntersectionIndex = 0;
     
-    // if (startIntersectionIndex > 0) {
-    //     currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
-    // }
+    if (startIntersectionIndex > 0) {
+        currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
+    }
 
     for (let i = startIntersectionIndex; i < intersectionData.length; i++) {
         const intersection = intersectionData[i];
