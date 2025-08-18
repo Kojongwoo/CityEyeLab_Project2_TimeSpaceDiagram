@@ -192,7 +192,7 @@ function calculateAndShowDifference() {
 
     const resultEl = document.getElementById("distanceResult");
     if (results.length > 0) {
-        resultEl.innerHTML = "<strong>구간별 시간 차이:</strong><br>" + results.join("<br>");
+        resultEl.innerHTML = "<strong>연동폭(Band Width):</strong><br>" + results.join("<br>");
     } else {
         resultEl.textContent = "두 궤적이 공통으로 지나는 교차로가 없습니다.";
     }
