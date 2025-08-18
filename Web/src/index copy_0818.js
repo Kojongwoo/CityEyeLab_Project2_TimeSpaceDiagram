@@ -22,15 +22,14 @@ let currentHint = null;
 let selectedAutoTrajectoryId = null; // 이동/수정을 위해 선택된 단일 궤적
 let isMoving = false;
 let dragStartPoint = null;
-// ▼▼▼ 추가: 비교를 위해 선택된 두 궤적의 ID를 저장할 배열
-let comparisonTrajectoryIds = []; 
+let comparisonTrajectoryIds = []; // 비교를 위해 선택된 두 궤적의 ID를 저장할 배열
 
 // === 데이터 및 스케일 변수 ===
 let globalGreenWindows = [];
 let globalEndTime = 0;
 let scaleState = null;
-let autoTrajectoriesById = {}; 
-let intersectionData = []; 
+let autoTrajectoriesById = {};
+let intersectionData = [];
 
 // 방향, SA 번호 전역 변수
 let globalDirection = '';
@@ -89,7 +88,7 @@ function handleFormSubmit(e) {
     const end_time = document.getElementById("end_time").value.trim() || 400;
 
     globalDirection = direction;
-    globalSaNum = sa_num;      
+    globalSaNum = sa_num;
 
     if (!direction) return alert("⚠️ 방향을 입력하세요.");
     document.getElementById("loading").style.display = "block";
@@ -163,11 +162,9 @@ function setupModeToggles() {
         fixedSpeedKph = !isNaN(val) && val > 0 ? val : null;
     });
 
-    // ▼▼▼ 추가: 거리 계산 버튼 이벤트 리스너 활성화
     document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
 }
 
-// ▼▼▼ 추가: 거리/시간 차이 계산 함수 (로직 변경)
 function calculateAndShowDifference() {
     if (comparisonTrajectoryIds.length !== 2) {
         alert("⚠️ 비교할 두 개의 궤적을 먼저 선택해주세요.");
@@ -253,7 +250,7 @@ canvas.addEventListener("mousedown", (e) => {
         }
         redrawCanvas();
     } else {
-        // ▼▼▼ 추가: 이동 모드가 아닐 때, 비교할 궤적 선택
+        // 이동 모드가 아닐 때, 비교할 궤적 선택
         const clickedId = findClickedAutoTrajectoryId(coords);
         if (clickedId) {
             const index = comparisonTrajectoryIds.indexOf(clickedId);
@@ -351,7 +348,6 @@ canvas.addEventListener("click", (e) => {
 //  헬퍼 및 계산 함수
 // ==================================================================
 
-// ▼▼▼ 추가: 특정 위치를 지나는 시간을 계산하는 함수 (선형 보간)
 function getCrossingTime(vehicleId, position) {
     const path = autoTrajectoriesById[vehicleId];
     if (!path || path.length < 2) return null;
@@ -495,7 +491,6 @@ function redrawCanvas() {
         for (const id in autoTrajectoriesById) {
             const path = autoTrajectoriesById[id].sort((a, b) => a.time - b.time);
             
-            // ▼▼▼ 수정: 선택 하이라이트 로직 변경 (이동용/비교용)
             if (isMoveMode && id === selectedAutoTrajectoryId) {
                 ctx.strokeStyle = "#e91e63"; // 이동용 선택은 분홍색
                 ctx.lineWidth = 3;
@@ -520,6 +515,26 @@ function redrawCanvas() {
         }
     }
     
+    // ▼▼▼ 신규 추가: 연동폭(Bandwidth) 시각화 로직 ▼▼▼
+    if (comparisonTrajectoryIds.length === 2) {
+        const [id1, id2] = comparisonTrajectoryIds;
+        for (const intersection of intersectionData) {
+            const pos = intersection.cumulative_distance;
+            const time1 = getCrossingTime(id1, pos);
+            const time2 = getCrossingTime(id2, pos);
+
+            if (time1 !== null && time2 !== null) {
+                const y_px = posToPx(pos);
+                const x1_px = timeToPx(time1);
+                const x2_px = timeToPx(time2);
+                
+                // 헬퍼 함수를 호출하여 연동폭 표시기 그리기
+                drawBandwidthIndicator(x1_px, x2_px, y_px, Math.abs(time1 - time2));
+            }
+        }
+    }
+    // ▲▲▲ 연동폭 시각화 로직 종료 ▲▲▲
+
     if (isDrawMode && isDrawing && lineStart && currentLinePreviewEnd) {
         ctx.beginPath();
         ctx.setLineDash([5, 5]);
@@ -533,6 +548,53 @@ function redrawCanvas() {
     if (currentHint) {
         drawHintBadge(currentHint);
     }
+}
+
+// ▼▼▼ 신규 추가: 연동폭 시각화 헬퍼 함수 ▼▼▼
+function drawBandwidthIndicator(x1, x2, y, timeDiff) {
+    const prongHeight = 6; // 양 끝 세로선의 높이
+    
+    ctx.save(); // 현재 컨텍스트 저장
+    ctx.strokeStyle = "#E6A23C"; // 노란색 계열
+    ctx.lineWidth = 2;
+
+    // 1. 주 수평선 그리기
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+
+    // 2. 시작 지점 세로선(Prong) 그리기
+    ctx.beginPath();
+    ctx.moveTo(x1, y - prongHeight);
+    ctx.lineTo(x1, y + prongHeight);
+    ctx.stroke();
+
+    // 3. 끝 지점 세로선(Prong) 그리기
+    ctx.beginPath();
+    ctx.moveTo(x2, y - prongHeight);
+    ctx.lineTo(x2, y + prongHeight);
+    ctx.stroke();
+
+    // 4. 시간 차이 텍스트 표시
+    ctx.font = "bold 11px 'Malgun Gothic'";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    
+    const text = `${timeDiff.toFixed(1)}s`;
+    const textWidth = ctx.measureText(text).width;
+    const textX = (x1 + x2) / 2;
+    const textY = y - 5;
+
+    // 텍스트 가독성을 위한 배경 추가
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.fillRect(textX - textWidth / 2 - 2, textY - 12, textWidth + 4, 14);
+    
+    // 텍스트 그리기
+    ctx.fillStyle = "#c70000"; // 눈에 띄는 빨간색 텍스트
+    ctx.fillText(text, textX, textY);
+    
+    ctx.restore(); // 컨텍스트 복원
 }
 
 function drawHintBadge(hint) {

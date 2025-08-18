@@ -133,6 +133,32 @@ function handleSaveExcel(e) {
     .catch(err => alert("❌ CSV 파일 저장 중 오류가 발생했습니다."));
 }
 
+function handleSaveCanvas() {
+    // 1. 캔버스 요소 가져오기
+    const canvas = document.getElementById("diagramCanvas");
+    if (!canvas) {
+        alert("⚠️ 저장할 캔버스를 찾을 수 없습니다.");
+        return;
+    }
+
+    // 2. 현재 캔버스 내용을 이미지 데이터(PNG 형식)로 변환
+    const imageURL = canvas.toDataURL("image/png");
+
+    // 3. 동적인 파일명 생성 (예: diagram_서동_SA26_1692345678.png)
+    const timestamp = new Date().getTime();
+    const saStr = globalSaNum ? `SA${globalSaNum}` : 'all';
+    const filename = `diagram_${globalDirection}_${saStr}_${timestamp}.png`;
+
+    // 4. 임시 <a> 태그를 생성하여 다운로드 실행
+    const link = document.createElement('a');
+    link.href = imageURL;
+    link.download = filename; // 저장될 파일명 설정
+    
+    // 사용자가 볼 수 없도록 링크를 숨기고 클릭 이벤트를 발생시켜 다운로드 트리거
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 
 // ==================================================================
 //  모드 관리 (Mode Management)
@@ -163,6 +189,7 @@ function setupModeToggles() {
     });
 
     document.getElementById("distanceBtn").addEventListener("click", calculateAndShowDifference);
+    document.getElementById("saveCanvasBtn").addEventListener("click", handleSaveCanvas);
 }
 
 function calculateAndShowDifference() {

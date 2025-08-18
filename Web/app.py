@@ -6,6 +6,8 @@ import datetime
 
 # 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
 # js 수정 후 npx webpack --mode=development
+# 코드 수정할 경우, Dockerbuild를 통해 컨테이너를 재빌드해야 합니다. docker build -t timespace-diag-app .
+# docker 빌드 후 실행 : docker run -p 8000:8000 timespace-diag-app
 
 # 현재 파일(app.py)의 위치를 기준으로 절대 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
