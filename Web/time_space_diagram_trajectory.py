@@ -165,7 +165,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
         all_trajectories = []
         
         # 53초 간격으로 차량 생성 (기존 로직 유지)
-        for start_time in range(1, end_time + 1, 53):
+        for start_time in range(1, end_time + 1, 100):
             if filtered.empty: continue
             
             # 첫 번째 교차로의 위치를 시작 위치로 설정

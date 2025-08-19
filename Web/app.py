@@ -172,5 +172,45 @@ def generate_json():
 
 #     return jsonify({"path": full_path})
 
+@app.route('/save_excel_csv', methods=['POST'])
+def save_excel_csv(): # 함수 이름을 좀 더 명확하게 변경
+    try:
+        content = request.get_json()
+        rows = content["rows"]
+        headers = content.get("headers")
+        direction = content.get("direction", "방향미지정")
+        sa_num = content.get("sa_num", "전체")
+        end_time = content.get("end_time", "시간미지정")
+
+        df = pd.DataFrame(rows, columns=headers)
+        df = df.fillna("")
+
+        now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        sa_str = f"SA{sa_num}" if sa_num else "전체"
+        filename = f"수정_{direction}_{sa_str}_{end_time}초_{now}.csv"
+        
+        # --- ▼▼▼ 핵심 수정 부분 ▼▼▼ ---
+        
+        # 1. 데이터를 파일이 아닌 메모리 내의 텍스트 버퍼에 저장
+        buffer = io.StringIO()
+        df.to_csv(buffer, index=False, encoding="utf-8-sig")
+        
+        # 2. 버퍼의 내용을 BytesIO로 감싸서 send_file로 전달 준비
+        mem = io.BytesIO()
+        mem.write(buffer.getvalue().encode('utf-8-sig'))
+        mem.seek(0) # 버퍼의 커서를 맨 앞으로 이동
+        
+        # 3. send_file을 사용해 브라우저에 파일 다운로드 응답을 보냄
+        return send_file(
+            mem,
+            as_attachment=True,      # 첨부 파일로 처리하도록 설정
+            download_name=filename,  # 다운로드될 파일의 이름 지정
+            mimetype='text/csv'      # 파일 형식을 CSV로 지정
+        )
+
+    except Exception as e:
+        print(f"❌ CSV 생성/전송 중 오류 발생: {e}")
+        return jsonify({"error": f"CSV 생성 실패. 오류: {str(e)}"}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)

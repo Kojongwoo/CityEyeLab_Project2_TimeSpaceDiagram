@@ -23,6 +23,7 @@ let selectedAutoTrajectoryId = null; // 이동/수정을 위해 선택된 단일
 let isMoving = false;
 let dragStartPoint = null;
 let comparisonTrajectoryIds = []; // 비교를 위해 선택된 두 궤적의 ID를 저장할 배열
+let travelTimeResultsById = {}; // 총 주행 시간 결과를 저장할 객체
 
 // === 데이터 및 스케일 변수 ===
 let globalGreenWindows = [];
@@ -61,7 +62,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
 // ==================================================================
-//  핵심 기능 핸들러 (변경 없음)
+//  핵심 기능 핸들러
 // ==================================================================
 
 function handleFileUpload(e) {
@@ -114,81 +115,74 @@ function handleFormSubmit(e) {
     });
 }
 
-// function handleSaveExcel(e) {
-//     e.preventDefault();
-//     const payload = {
-//         rows: hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== "")),
-//         headers: hot.getColHeader(),
-//         direction: document.getElementById("direction").value.trim(),
-//         sa_num: document.getElementById("sa_num").value.trim(),
-//         end_time: document.getElementById("end_time").value.trim(),
-//     };
-//     fetch("/save_excel_csv", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify(payload)
-//     })
-//     .then(res => res.json())
-//     .then(json => alert("✅ CSV 파일 저장 완료!\n경로: " + json.path))
-//     .catch(err => alert("❌ CSV 파일 저장 중 오류가 발생했습니다."));
-// }
 function handleSaveExcel(e) {
     e.preventDefault();
+    const payload = {
+        rows: hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== "")),
+        headers: hot.getColHeader(),
+        direction: document.getElementById("direction").value.trim(),
+        sa_num: document.getElementById("sa_num").value.trim(),
+        end_time: document.getElementById("end_time").value.trim(),
+    };
 
-    // 1. Handsontable에서 데이터 가져오기
-    const headers = hot.getColHeader();
-    const rows = hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== ""));
-    const dataToExport = [headers, ...rows]; // 헤더와 데이터를 합침
-
-    // 2. 동적 파일명 생성
-    const direction = document.getElementById("direction").value.trim() || "방향미지정";
-    const sa_num = document.getElementById("sa_num").value.trim() || "전체";
-    const end_time = document.getElementById("end_time").value.trim() || "시간미지정";
-    const now = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
-    const sa_str = sa_num ? `SA${sa_num}` : "전체";
-    const filename = `${direction}_${sa_str}_${end_time}초_${now}.csv`;
-
-    // 3. PapaParse를 사용하여 데이터를 CSV 문자열로 변환
-    const csvString = Papa.unparse(dataToExport);
-
-    // 4. CSV 문자열을 Blob 객체로 변환 (Excel에서 한글이 깨지지 않도록 BOM 추가)
-    const blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8-sig;' });
-
-    // 5. Blob URL을 생성하여 다운로드 링크 만들기 및 실행
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // URL 객체 메모리 해제
-    URL.revokeObjectURL(link.href);
+    fetch("/save_excel_csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    })
+    .then(res => {
+        if (!res.ok) {
+            throw new Error("서버에서 파일 생성에 실패했습니다.");
+        }
+        // 서버 응답 헤더에서 파일 이름을 가져옴
+        const disposition = res.headers.get('Content-Disposition');
+        let filename = 'edited_data.csv'; // 기본 파일명
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) { 
+                filename = decodeURI(matches[1].replace(/['"]/g, ''));
+            }
+        }
+        return res.blob().then(blob => ({ blob, filename }));
+    })
+    .then(({ blob, filename }) => {
+        // 받은 파일 데이터(blob)를 이용해 다운로드 링크를 생성하고 클릭
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename; // 응답 헤더에서 받은 파일명으로 설정
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        window.URL.revokeObjectURL(url); // 임시 URL 해제
+        a.remove();
+    })
+    .catch(err => alert("❌ CSV 파일 다운로드 중 오류가 발생했습니다: " + err.message));
 }
 
 function handleSaveCanvas() {
-    // 1. 캔버스 요소 가져오기
-    const canvas = document.getElementById("diagramCanvas");
-    if (!canvas) {
+    const originalCanvas = document.getElementById("diagramCanvas");
+    if (!originalCanvas) {
         alert("⚠️ 저장할 캔버스를 찾을 수 없습니다.");
         return;
     }
-
-    // 2. 현재 캔버스 내용을 이미지 데이터(PNG 형식)로 변환
-    const imageURL = canvas.toDataURL("image/png");
-
-    // 3. 동적인 파일명 생성 (예: diagram_서동_SA26_1692345678.png)
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = originalCanvas.width;
+    tempCanvas.height = originalCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.fillStyle = '#FFFFFF';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    tempCtx.drawImage(originalCanvas, 0, 0);
+    const imageURL = tempCanvas.toDataURL("image/png");
     const timestamp = new Date().getTime();
     const saStr = globalSaNum ? `SA${globalSaNum}` : 'all';
     const filename = `diagram_${globalDirection}_${saStr}_${timestamp}.png`;
-
-    // 4. 임시 <a> 태그를 생성하여 다운로드 실행
     const link = document.createElement('a');
     link.href = imageURL;
-    link.download = filename; // 저장될 파일명 설정
-    
-    // 사용자가 볼 수 없도록 링크를 숨기고 클릭 이벤트를 발생시켜 다운로드 트리거
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -227,42 +221,80 @@ function setupModeToggles() {
 }
 
 function calculateAndShowDifference() {
+    travelTimeResultsById = {};
+    const resultEl = document.getElementById("distanceResult");
+    
     if (comparisonTrajectoryIds.length !== 2) {
         alert("⚠️ 비교할 두 개의 궤적을 먼저 선택해주세요.");
+        resultEl.innerHTML = "";
+        redrawCanvas();
         return;
     }
 
     const [id1, id2] = comparisonTrajectoryIds;
-    let results = [];
+    let bandwidthResults = [];
+    let travelTimeResults = [];
 
-    // 모든 교차로에 대해 시간 차이 계산
-    for (const intersection of intersectionData) {
-        const pos = intersection.cumulative_distance;
-        
-        const time1 = getCrossingTime(id1, pos);
-        const time2 = getCrossingTime(id2, pos);
-
-        if (time1 !== null && time2 !== null) {
-            const timeDiff = Math.abs(time1 - time2);
-            results.push(`<strong>${intersection.intersection_name}</strong>: ${timeDiff.toFixed(1)}초`);
+    if (intersectionData.length > 1) {
+        for (let i = 0; i < intersectionData.length - 1; i++) {
+            const intersection1 = intersectionData[i];
+            const intersection2 = intersectionData[i+1];
+            const midPosition = (intersection1.cumulative_distance + intersection2.cumulative_distance) / 2;
+            const time1 = getCrossingTime(id1, midPosition);
+            const time2 = getCrossingTime(id2, midPosition);
+            if (time1 !== null && time2 !== null) {
+                const timeDiff = Math.abs(time1 - time2);
+                const label = `${intersection1.intersection_name} - ${intersection2.intersection_name}`;
+                bandwidthResults.push(`<strong>${label}</strong>: ${timeDiff.toFixed(1)}초`);
+            }
         }
     }
 
-    const resultEl = document.getElementById("distanceResult");
-    if (results.length > 0) {
-        resultEl.innerHTML = "<strong>연동폭(Band Width):</strong><br>" + results.join("<br>");
-    } else {
-        resultEl.textContent = "두 궤적이 공통으로 지나는 교차로가 없습니다.";
+    if (intersectionData.length > 1) {
+        const firstIntersection = intersectionData[0];
+        const lastIntersection = intersectionData[intersectionData.length - 1];
+
+        const startTime1 = getCrossingTime(id1, firstIntersection.cumulative_distance);
+        const endTime1 = getCrossingTime(id1, lastIntersection.cumulative_distance);
+        if (startTime1 !== null && endTime1 !== null) {
+            const totalTime1 = endTime1 - startTime1;
+            travelTimeResultsById[id1] = totalTime1;
+            travelTimeResults.push(`<strong>궤적 1 총 주행 시간:</strong> ${totalTime1.toFixed(1)}초`);
+        }
+
+        const startTime2 = getCrossingTime(id2, firstIntersection.cumulative_distance);
+        const endTime2 = getCrossingTime(id2, lastIntersection.cumulative_distance);
+        if (startTime2 !== null && endTime2 !== null) {
+            const totalTime2 = endTime2 - startTime2;
+            travelTimeResultsById[id2] = totalTime2;
+            travelTimeResults.push(`<strong>궤적 2 총 주행 시간:</strong> ${totalTime2.toFixed(1)}초`);
+        }
     }
+    
+    let outputHtml = "";
+    if (bandwidthResults.length > 0) {
+        outputHtml += "<strong>연동폭 (Bandwidth):</strong><br>" + bandwidthResults.join("<br>");
+    } else {
+        outputHtml += "두 궤적이 공통으로 지나는 교차로가 없습니다.";
+    }
+
+    if (travelTimeResults.length > 0) {
+        outputHtml += "<br><br>" + travelTimeResults.join("<br>");
+    }
+
+    resultEl.innerHTML = outputHtml;
+
+    redrawCanvas();
 }
+
 
 function setMode(activeMode) {
     isDrawMode = false;
     isDeleteDrawnMode = false;
     isMoveMode = false;
 
-    // 모드를 변경하면, 비교 선택 상태를 초기화
     comparisonTrajectoryIds = [];
+    travelTimeResultsById = {};
 
     Object.values(toggles).forEach(elements => {
         elements.input.checked = false;
@@ -279,7 +311,7 @@ function setMode(activeMode) {
         toggles[activeMode].label.textContent = "ON";
         toggles[activeMode].label.style.color = "#2e7d32";
     }
-    redrawCanvas(); // 모드 변경 시 하이라이트 해제를 위해 다시 그림
+    redrawCanvas();
 }
 
 
@@ -311,17 +343,16 @@ canvas.addEventListener("mousedown", (e) => {
         }
         redrawCanvas();
     } else {
-        // 이동 모드가 아닐 때, 비교할 궤적 선택
         const clickedId = findClickedAutoTrajectoryId(coords);
         if (clickedId) {
             const index = comparisonTrajectoryIds.indexOf(clickedId);
             if (index > -1) {
-                // 이미 선택된 궤적이면 선택 해제
                 comparisonTrajectoryIds.splice(index, 1);
             } else if (comparisonTrajectoryIds.length < 2) {
-                // 2개 미만이면 선택 목록에 추가
                 comparisonTrajectoryIds.push(clickedId);
             }
+            travelTimeResultsById = {};
+            document.getElementById("distanceResult").innerHTML = "";
         }
         redrawCanvas();
     }
@@ -336,10 +367,8 @@ canvas.addEventListener("mousemove", (e) => {
         redrawCanvas();
     } else if (isMoveMode && isMoving) {
         if (selectedAutoTrajectoryId) {
-            const dx = coords.x - dragStartPoint.x;
-            const dy = coords.y - dragStartPoint.y;
             const dTime = pxToTime(coords.x) - pxToTime(dragStartPoint.x);
-            const dPos = pxToPos(dragStartPoint.y + dy) - pxToPos(dragStartPoint.y);
+            const dPos = pxToPos(coords.y) - pxToPos(dragStartPoint.y);
 
             const pathToMove = autoTrajectoriesById[selectedAutoTrajectoryId];
             if (pathToMove) {
@@ -358,12 +387,9 @@ canvas.addEventListener("mouseup", (e) => {
     if (isDrawMode && isDrawing) {
         const startTime = pxToTime(lineStart.x);
         const startPosition = pxToPos(lineStart.y);
-
         const newPath = recalculateTrajectory(startTime, startPosition);
-        
         const newId = `manual_${Date.now()}`;
         autoTrajectoriesById[newId] = newPath;
-
         isDrawing = false;
         lineStart = null;
         currentLinePreviewEnd = null;
@@ -395,7 +421,6 @@ canvas.addEventListener("click", (e) => {
             if (selectedAutoTrajectoryId === idToDelete) {
                 selectedAutoTrajectoryId = null;
             }
-            // 비교 목록에서도 제거
             const compIndex = comparisonTrajectoryIds.indexOf(idToDelete);
             if (compIndex > -1) {
                 comparisonTrajectoryIds.splice(compIndex, 1);
@@ -412,55 +437,66 @@ canvas.addEventListener("click", (e) => {
 function getCrossingTime(vehicleId, position) {
     const path = autoTrajectoriesById[vehicleId];
     if (!path || path.length < 2) return null;
-
     for (let i = 0; i < path.length - 1; i++) {
         const p1 = path[i];
         const p2 = path[i+1];
-
-        // 궤적이 해당 위치를 지나는 구간(p1, p2)을 찾음
         if ((p1.position <= position && p2.position >= position) || (p1.position >= position && p2.position <= position)) {
             const posRange = p2.position - p1.position;
-            // 수평선(대기) 구간인 경우
             if (Math.abs(posRange) < 1e-6) {
-                continue; // 대기 중에는 교차로를 '통과'하는 것이 아니므로 다음 지점 확인
+                if (Math.abs(p1.position - position) < 1e-6) return p1.time; 
+                continue;
             }
-            // 선형 보간으로 정확한 통과 시간 계산
             const fraction = (position - p1.position) / posRange;
             const time = p1.time + (p2.time - p1.time) * fraction;
             return time;
         }
     }
-    return null; // 궤적이 해당 위치를 지나지 않음
+    return null;
 }
 
+function findClickedAutoTrajectoryId(coords) {
+    if (!autoTrajectoriesById) return null;
+    let closestId = null;
+    let minDistance = Infinity;
+    for (const vehicleId in autoTrajectoriesById) {
+        const path = autoTrajectoriesById[vehicleId];
+        for (let i = 0; i < path.length - 1; i++) {
+            const p1 = path[i];
+            const p2 = path[i+1];
+            const p1_px = { x: timeToPx(p1.time), y: posToPx(p1.position) };
+            const p2_px = { x: timeToPx(p2.time), y: posToPx(p2.position) };
+            const distance = pointToLineDistance(coords.x, coords.y, p1_px.x, p1_px.y, p2_px.x, p2_px.y);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestId = vehicleId;
+            }
+        }
+    }
+    if (minDistance < 5) {
+        return closestId;
+    }
+    return null;
+}
 
 function recalculateTrajectory(startTime, startPosition) {
     const newPath = [];
     let currentTime = startTime;
     let currentPos = startPosition;
-
     newPath.push({ time: currentTime, position: currentPos });
-
     let startIntersectionIndex = intersectionData.findIndex(i => i.cumulative_distance >= currentPos);
     if (startIntersectionIndex === -1) startIntersectionIndex = 0;
-    
     if (startIntersectionIndex > 0) {
         currentPos = intersectionData[startIntersectionIndex -1].cumulative_distance;
     }
-
     for (let i = startIntersectionIndex; i < intersectionData.length; i++) {
         const intersection = intersectionData[i];
-        
         const dist = intersection.cumulative_distance - currentPos;
         if (dist <= 0) continue;
-
-        const speed = intersection.speed_limit_kph / 3.6;
+        const speed = (isFixedSpeedMode && fixedSpeedKph) ? fixedSpeedKph / 3.6 : intersection.speed_limit_kph / 3.6;
         if (speed <= 0) continue;
-
         const travelTime = dist / speed;
         let arrivalTime = currentTime + travelTime;
         const nextPos = intersection.cumulative_distance;
-
         const timePoints = Array.from({length: Math.round(travelTime) + 1}, (_, j) => currentTime + j);
         timePoints.push(arrivalTime);
         for(const t of timePoints) {
@@ -470,23 +506,18 @@ function recalculateTrajectory(startTime, startPosition) {
                 position: currentPos + (nextPos - currentPos) * fraction,
             });
         }
-        
         currentTime = arrivalTime;
         currentPos = nextPos;
-        
         const greenWindowsForIntersection = globalGreenWindows.filter(
             w => w.intersection_name === intersection.intersection_name
         );
-        
         let canPass = greenWindowsForIntersection.some(
-            w => arrivalTime >= w.green_start_time && arrivalTime <= w.green_end_time
+            w => arrivalTime >= w.green_start_time - 1e-6 && arrivalTime <= w.green_end_time + 1e-6
         );
-
         if (!canPass) {
             const futureGreens = greenWindowsForIntersection
                 .filter(w => w.green_start_time >= arrivalTime)
                 .sort((a, b) => a.green_start_time - b.green_start_time);
-
             if (futureGreens.length > 0) {
                 const nextGreenStart = futureGreens[0].green_start_time;
                 const waitPoints = Array.from({length: Math.round(nextGreenStart - arrivalTime) + 1}, (_, j) => arrivalTime + j);
@@ -501,24 +532,6 @@ function recalculateTrajectory(startTime, startPosition) {
     }
     const uniquePath = Array.from(new Map(newPath.map(p => [Math.round(p.time), p])).values());
     return uniquePath.sort((a,b) => a.time - b.time);
-}
-
-function findClickedAutoTrajectoryId(coords) {
-    if (!autoTrajectoriesById) return null;
-    for (const vehicleId in autoTrajectoriesById) {
-        const path = autoTrajectoriesById[vehicleId];
-        for (let i = 0; i < path.length - 1; i++) {
-            const p1 = path[i];
-            const p2 = path[i+1];
-            const p1_px = { x: timeToPx(p1.time), y: posToPx(p1.position) };
-            const p2_px = { x: timeToPx(p2.time), y: posToPx(p2.position) };
-            const distance = pointToLineDistance(coords.x, coords.y, p1_px.x, p1_px.y, p2_px.x, p2_px.y);
-            if (distance < 5) {
-                return vehicleId;
-            }
-        }
-    }
-    return null;
 }
 
 function pointToLineDistance(px, py, x1, y1, x2, y2) {
@@ -548,22 +561,19 @@ function redrawCanvas() {
     if (autoTrajectoriesById) {
         const trajectoryColors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4', '#000000', '#F032E6'];
         let colorIndex = 0;
-
         for (const id in autoTrajectoriesById) {
             const path = autoTrajectoriesById[id].sort((a, b) => a.time - b.time);
-            
             if (isMoveMode && id === selectedAutoTrajectoryId) {
-                ctx.strokeStyle = "#e91e63"; // 이동용 선택은 분홍색
+                ctx.strokeStyle = "#e91e63";
                 ctx.lineWidth = 3;
             } else if (comparisonTrajectoryIds.includes(id)) {
-                ctx.strokeStyle = "#0d01af"; // 비교용 선택은 진한 파랑색
+                ctx.strokeStyle = "#0d01af";
                 ctx.lineWidth = 3;
             } else {
                 ctx.strokeStyle = trajectoryColors[colorIndex % trajectoryColors.length];
                 ctx.lineWidth = 1.5;
             }
             ctx.setLineDash([]);
-            
             if (path.length > 1) {
                 ctx.beginPath();
                 ctx.moveTo(timeToPx(path[0].time), posToPx(path[0].position));
@@ -572,29 +582,46 @@ function redrawCanvas() {
                 }
                 ctx.stroke();
             }
+
+            const comparisonIndex = comparisonTrajectoryIds.indexOf(id);
+            if (comparisonIndex > -1) {
+                if (path && path.length > 0) {
+                    const firstPoint = path[0];
+                    drawTrajectoryOrderLabel(`${comparisonIndex + 1}`, firstPoint);
+                }
+            }
+
             colorIndex++;
         }
     }
+
+    for (const id of comparisonTrajectoryIds) {
+        const totalTime = travelTimeResultsById[id];
+        if (totalTime) {
+            const path = autoTrajectoriesById[id];
+            if (path && path.length > 0) {
+                const lastPoint = path[path.length - 1];
+                drawTotalTimeOnCanvas(totalTime, lastPoint);
+            }
+        }
+    }
     
-    // ▼▼▼ 신규 추가: 연동폭(Bandwidth) 시각화 로직 ▼▼▼
     if (comparisonTrajectoryIds.length === 2) {
         const [id1, id2] = comparisonTrajectoryIds;
-        for (const intersection of intersectionData) {
-            const pos = intersection.cumulative_distance;
-            const time1 = getCrossingTime(id1, pos);
-            const time2 = getCrossingTime(id2, pos);
-
+        for (let i = 0; i < intersectionData.length - 1; i++) {
+            const intersection1 = intersectionData[i];
+            const intersection2 = intersectionData[i+1];
+            const midPosition = (intersection1.cumulative_distance + intersection2.cumulative_distance) / 2;
+            const time1 = getCrossingTime(id1, midPosition);
+            const time2 = getCrossingTime(id2, midPosition);
             if (time1 !== null && time2 !== null) {
-                const y_px = posToPx(pos);
+                const y_px = posToPx(midPosition); 
                 const x1_px = timeToPx(time1);
                 const x2_px = timeToPx(time2);
-                
-                // 헬퍼 함수를 호출하여 연동폭 표시기 그리기
                 drawBandwidthIndicator(x1_px, x2_px, y_px, Math.abs(time1 - time2));
             }
         }
     }
-    // ▲▲▲ 연동폭 시각화 로직 종료 ▲▲▲
 
     if (isDrawMode && isDrawing && lineStart && currentLinePreviewEnd) {
         ctx.beginPath();
@@ -611,51 +638,83 @@ function redrawCanvas() {
     }
 }
 
-// ▼▼▼ 신규 추가: 연동폭 시각화 헬퍼 함수 ▼▼▼
 function drawBandwidthIndicator(x1, x2, y, timeDiff) {
-    const prongHeight = 6; // 양 끝 세로선의 높이
-    
-    ctx.save(); // 현재 컨텍스트 저장
-    ctx.strokeStyle = "#E6A23C"; // 노란색 계열
+    const prongHeight = 6;
+    ctx.save();
+    ctx.strokeStyle = "#E6A23C";
     ctx.lineWidth = 2;
-
-    // 1. 주 수평선 그리기
     ctx.beginPath();
     ctx.moveTo(x1, y);
     ctx.lineTo(x2, y);
     ctx.stroke();
-
-    // 2. 시작 지점 세로선(Prong) 그리기
     ctx.beginPath();
     ctx.moveTo(x1, y - prongHeight);
     ctx.lineTo(x1, y + prongHeight);
     ctx.stroke();
-
-    // 3. 끝 지점 세로선(Prong) 그리기
     ctx.beginPath();
     ctx.moveTo(x2, y - prongHeight);
     ctx.lineTo(x2, y + prongHeight);
     ctx.stroke();
-
-    // 4. 시간 차이 텍스트 표시
     ctx.font = "bold 11px 'Malgun Gothic'";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    
     const text = `${timeDiff.toFixed(1)}s`;
     const textWidth = ctx.measureText(text).width;
     const textX = (x1 + x2) / 2;
     const textY = y - 5;
-
-    // 텍스트 가독성을 위한 배경 추가
     ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
     ctx.fillRect(textX - textWidth / 2 - 2, textY - 12, textWidth + 4, 14);
-    
-    // 텍스트 그리기
-    ctx.fillStyle = "#c70000"; // 눈에 띄는 빨간색 텍스트
+    ctx.fillStyle = "#c70000";
     ctx.fillText(text, textX, textY);
+    ctx.restore();
+}
+
+function drawTotalTimeOnCanvas(totalTime, lastPoint) {
+    const x_px = timeToPx(lastPoint.time);
+    const y_px = posToPx(lastPoint.position);
+    ctx.save();
+    ctx.font = "bold 12px 'Malgun Gothic'";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const text = `${totalTime.toFixed(1)}s`;
+    const textWidth = ctx.measureText(text).width;
+    const textX = x_px + textWidth / 2 + 10;
+    const textY = y_px - 5;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fillRect(textX - textWidth / 2 - 4, textY - 14, textWidth + 8, 16);
+    ctx.fillStyle = "#E6194B";
+    ctx.fillText(text, textX, textY);
+    ctx.restore();
+}
+
+function drawTrajectoryOrderLabel(label, firstPoint) {
+    const x_px = timeToPx(firstPoint.time);
+    const y_px = posToPx(firstPoint.position);
+
+    // 번호표 위치를 궤적 시작점에서 살짝 왼쪽 위로 조정
+    const labelX = x_px - 15;
+    const labelY = y_px - 15;
+    const radius = 9;
+
+    ctx.save();
     
-    ctx.restore(); // 컨텍스트 복원
+    // 파란색 원 배경 그리기
+    ctx.beginPath();
+    ctx.arc(labelX, labelY, radius, 0, 2 * Math.PI, false);
+    ctx.fillStyle = '#0d01af'; // 선택된 궤적과 동일한 파란색
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.stroke();
+
+    // 원 안에 흰색 숫자로 텍스트 그리기
+    ctx.font = "bold 12px 'Malgun Gothic'";
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX, labelY + 1);
+    
+    ctx.restore();
 }
 
 function drawHintBadge(hint) {
@@ -683,9 +742,8 @@ function posToPx(pos) { return scaleState ? scaleState.plotBottom - ((pos - scal
 function pxToTime(x) { return scaleState ? ((x - scaleState.plotLeft) / scaleState.plotWidth) * scaleState.end_time : 0; }
 function pxToPos(y) { return scaleState ? scaleState.minPos + ((scaleState.plotBottom - y) / scaleState.plotHeight) * scaleState.posRange : 0; }
 
-
 // ==================================================================
-//  CSV 로드 및 Canvas 배경 그리기 (변경 없음)
+//  CSV 로드 및 Canvas 배경 그리기
 // ==================================================================
 
 async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
@@ -741,7 +799,6 @@ async function drawCanvasFromCsv(filePrefix, end_time, direction, sa_num) {
     }
 }
 
-
 async function loadCSV(url) {
     const res = await fetch(url);
     if (!res.ok) {
@@ -751,7 +808,6 @@ async function loadCSV(url) {
     const parsed = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: true });
     return parsed.data;
 }
-
 
 function drawOnCanvas(green_windows, end_time, direction = '', sa_num = '') {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
