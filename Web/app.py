@@ -150,27 +150,27 @@ def generate_json():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/save_excel_csv', methods=['POST'])
-def save_excel():
-    content = request.get_json()
-    rows = content["rows"]
-    headers = content.get("headers")
-    direction = content.get("direction", "방향미지정")
-    sa_num = content.get("sa_num", "전체")
-    end_time = content.get("end_time", "시간미지정")
+# @app.route('/save_excel_csv', methods=['POST'])
+# def save_excel():
+#     content = request.get_json()
+#     rows = content["rows"]
+#     headers = content.get("headers")
+#     direction = content.get("direction", "방향미지정")
+#     sa_num = content.get("sa_num", "전체")
+#     end_time = content.get("end_time", "시간미지정")
 
-    df = pd.DataFrame(rows, columns=headers)
-    df = df.fillna("")
+#     df = pd.DataFrame(rows, columns=headers)
+#     df = df.fillna("")
 
-    now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    sa_str = f"SA{sa_num}" if sa_num else "전체"
-    filename = f"{direction}_{sa_str}_{end_time}초_{now}.csv"
+#     now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+#     sa_str = f"SA{sa_num}" if sa_num else "전체"
+#     filename = f"{direction}_{sa_str}_{end_time}초_{now}.csv"
     
-    full_path = os.path.join(OUTPUT_DIR, filename)
+#     full_path = os.path.join(OUTPUT_DIR, filename)
 
-    df.to_csv(full_path, index=False, encoding="utf-8-sig")
+#     df.to_csv(full_path, index=False, encoding="utf-8-sig")
 
-    return jsonify({"path": full_path})
+#     return jsonify({"path": full_path})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)

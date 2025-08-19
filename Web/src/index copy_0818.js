@@ -114,23 +114,57 @@ function handleFormSubmit(e) {
     });
 }
 
+// function handleSaveExcel(e) {
+//     e.preventDefault();
+//     const payload = {
+//         rows: hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== "")),
+//         headers: hot.getColHeader(),
+//         direction: document.getElementById("direction").value.trim(),
+//         sa_num: document.getElementById("sa_num").value.trim(),
+//         end_time: document.getElementById("end_time").value.trim(),
+//     };
+//     fetch("/save_excel_csv", {
+//         method: "POST",
+//         headers: { "Content-Type": "application/json" },
+//         body: JSON.stringify(payload)
+//     })
+//     .then(res => res.json())
+//     .then(json => alert("✅ CSV 파일 저장 완료!\n경로: " + json.path))
+//     .catch(err => alert("❌ CSV 파일 저장 중 오류가 발생했습니다."));
+// }
 function handleSaveExcel(e) {
     e.preventDefault();
-    const payload = {
-        rows: hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== "")),
-        headers: hot.getColHeader(),
-        direction: document.getElementById("direction").value.trim(),
-        sa_num: document.getElementById("sa_num").value.trim(),
-        end_time: document.getElementById("end_time").value.trim(),
-    };
-    fetch("/save_excel_csv", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(json => alert("✅ CSV 파일 저장 완료!\n경로: " + json.path))
-    .catch(err => alert("❌ CSV 파일 저장 중 오류가 발생했습니다."));
+
+    // 1. Handsontable에서 데이터 가져오기
+    const headers = hot.getColHeader();
+    const rows = hot.getData().filter(row => row.some(cell => String(cell ?? "").trim() !== ""));
+    const dataToExport = [headers, ...rows]; // 헤더와 데이터를 합침
+
+    // 2. 동적 파일명 생성
+    const direction = document.getElementById("direction").value.trim() || "방향미지정";
+    const sa_num = document.getElementById("sa_num").value.trim() || "전체";
+    const end_time = document.getElementById("end_time").value.trim() || "시간미지정";
+    const now = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
+    const sa_str = sa_num ? `SA${sa_num}` : "전체";
+    const filename = `${direction}_${sa_str}_${end_time}초_${now}.csv`;
+
+    // 3. PapaParse를 사용하여 데이터를 CSV 문자열로 변환
+    const csvString = Papa.unparse(dataToExport);
+
+    // 4. CSV 문자열을 Blob 객체로 변환 (Excel에서 한글이 깨지지 않도록 BOM 추가)
+    const blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8-sig;' });
+
+    // 5. Blob URL을 생성하여 다운로드 링크 만들기 및 실행
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // URL 객체 메모리 해제
+    URL.revokeObjectURL(link.href);
 }
 
 function handleSaveCanvas() {
