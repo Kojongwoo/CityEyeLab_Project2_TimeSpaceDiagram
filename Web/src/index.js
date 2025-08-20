@@ -86,6 +86,7 @@ function handleFormSubmit(e) {
     e.preventDefault();
     const direction = document.getElementById("direction").value.trim();
     const sa_num = document.getElementById("sa_num").value.trim();
+    const sa_range = document.getElementById("sa_range").value.trim(); // [추가] Range 값을 읽어옵니다.
     const end_time = document.getElementById("end_time").value.trim() || 400;
 
     globalDirection = direction;
@@ -94,7 +95,7 @@ function handleFormSubmit(e) {
     if (!direction) return alert("⚠️ 방향을 입력하세요.");
     document.getElementById("loading").style.display = "block";
 
-    const payload = { data: hot.getData(), direction, sa_num, end_time };
+    const payload = { data: hot.getData(), direction, sa_num, sa_range, end_time };
     fetch("/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -31,7 +31,7 @@
     margin-bottom: 10px;
     font-weight: bold;
    }
-   input#FileInput, input#direction, input#sa_num, input#end_time {
+   input#FileInput, input#direction, input#sa_num, input#sa_range, input#end_time {
     padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -137,7 +137,7 @@
     background: #fff;
   }
   /* 상단 입력창 스타일 */
-  #direction, #sa_num, #end_time {
+  #direction, #sa_num, #sa_range, #end_time {
     font-size: 16px;      /* 글자 크기를 16px로 설정 */
     padding: 8px 10px;    /* 내부 여백을 주어 박스 크기를 키움 */
     border: 1px solid #ccc;
@@ -177,6 +177,7 @@
       <div id="hot"></div>
       방향: <input type="text" id="direction">
       SA_num (선택): <input type="number" id="sa_num">
+      SA_Range: <input type="number" id="sa_range" value="2" min="0">
       종료 시간 (초): <input type="number" id="end_time">
       <button type="submit">시공도 생성</button>
       <button type="button" id="saveExcelBtn" style="margin-top: 15px;">📥 수정된 엑셀 저장</button>

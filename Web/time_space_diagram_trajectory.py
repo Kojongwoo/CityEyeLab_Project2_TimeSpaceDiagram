@@ -132,7 +132,7 @@ def recalculate_trajectory(start_time, start_pos, intersections_df, green_window
     return unique_path
 
 
-def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, with_trajectory=True):
+def draw_time_space_diagram(direction, filename, sa_num=None, sa_range=2, end_time=1800, with_trajectory=True):
     global df
 
     # 데이터 전처리 (기존 코드와 동일)
@@ -147,7 +147,7 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
     filtered_all["cumulative_distance"] = filtered_all["distance_from_prev_meter"].cumsum().fillna(0)
 
     if sa_num is not None:
-        sa_range = 2
+        # sa_range = 2
         sa_min, sa_max = sa_num - sa_range, sa_num + sa_range
         filtered = filtered_all[(filtered_all["SA_num"] >= sa_min) & (filtered_all["SA_num"] <= sa_max)].copy()
     else:

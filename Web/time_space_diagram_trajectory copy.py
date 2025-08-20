@@ -26,6 +26,29 @@ def recalculate_trajectory(start_time, start_pos, intersections_df, green_window
     current_time = float(start_time)
     current_pos = float(start_pos)
     path.append({'time': current_time, 'position': current_pos})
+
+    # 시작 위치가 교차로인지 확인 (부동소수점 오차 감안)
+    starting_intersection_df = intersections_df[abs(intersections_df['cumulative_distance'] - current_pos) < 1e-6]
+    if not starting_intersection_df.empty:
+        intersection_name = starting_intersection_df.iloc[0]['intersection_name']
+        green_windows = green_windows_df[green_windows_df['intersection_name'] == intersection_name]
+
+        can_start = any(
+            (current_time >= row['green_start_time'] - 1e-6) and (current_time <= row['green_end_time'] + 1e-6)
+            for _, row in green_windows.iterrows()
+        )
+
+        if not can_start:
+            # 출발할 수 없다면, 가장 가까운 미래의 녹색 신호까지 대기
+            future_greens = green_windows[green_windows['green_start_time'] >= current_time].sort_values('green_start_time')
+            if not future_greens.empty:
+                next_green_start = future_greens.iloc[0]['green_start_time']
+
+                wait_points = np.linspace(current_time, next_green_start, num=int(next_green_start - current_time) + 2)
+                for t in wait_points:
+                    path.append({'time': t, 'position': current_pos})
+
+                current_time = next_green_start # 대기 후 현재 시간 업데이트
     
     # DataFrame을 순회를 위해 dictionary 리스트로 변환
     intersections = intersections_df.to_dict('records')

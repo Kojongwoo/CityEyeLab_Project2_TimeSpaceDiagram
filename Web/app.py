@@ -72,6 +72,13 @@ def generate():
                 sa_num = None
         else:
             sa_num = None
+
+        # ▼▼▼ 1. 이 위치에 코드를 추가합니다 ▼▼▼
+        sa_range_input = content.get('sa_range', '2') 
+        try:
+            sa_range = int(sa_range_input)
+        except (ValueError, TypeError):
+            sa_range = 2   
             
         end_time_input = content.get('end_time')
         if end_time_input:
@@ -88,20 +95,25 @@ def generate():
 
         # ▼▼▼ [추가] 필터링된 데이터에서 실제 사용된 SA 번호 목록을 추출합니다. ▼▼▼
         filtered_all = df[df["direction"] == direction].copy()
+
+        # [2단계] if 블록 내부의 'sa_range = 2'는 삭제하고, else는 그대로 둡니다.
         if sa_num is not None:
-            sa_range = 2
+            # 위에서 받아온 sa_range 변수를 사용합니다.
             sa_min, sa_max = sa_num - sa_range, sa_num + sa_range
             filtered = filtered_all[(filtered_all["SA_num"] >= sa_min) & (filtered_all["SA_num"] <= sa_max)]
             used_sa_nums = sorted([int(n) for n in filtered["SA_num"].unique()])
         else:
-            used_sa_nums = [] # sa_num 입력이 없을 경우 빈 리스트       
+            # 이 else 블록은 수정하지 않습니다.
+            used_sa_nums = []    
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
         sa_str = f"SA{sa_num}" if sa_num is not None else 'all'
+
         output_name = f"diagram_{direction}_{sa_str}_{timestamp}.png"
         
-        tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
+        # sa_range 변수를 함수 호출에 추가합니다.
+        tsd.draw_time_space_diagram(direction, output_name, sa_num, sa_range, end_time, with_trajectory=True)
         
         image_url = f"/static/output/{output_name}"
         return jsonify({
