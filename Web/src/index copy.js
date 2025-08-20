@@ -101,8 +101,17 @@ function handleFormSubmit(e) {
         body: JSON.stringify(payload)
     })
     .then(res => res.ok ? res.json() : res.json().then(err => { throw new Error(err.error) }))
+
     .then(json => {
         document.getElementById("loading").style.display = "none";
+
+        const feedbackEl = document.getElementById("saNumFeedback");
+        if (json.used_sa_nums && json.used_sa_nums.length > 0) {
+            feedbackEl.innerHTML = `<strong>📊 분석에 사용된 SA:</strong> ${json.used_sa_nums.join(', ')}`;
+        } else {
+            feedbackEl.innerHTML = ""; // 내용 초기화
+        }
+
         if (json.file_prefix) {
             document.getElementById("canvasSection").style.display = "block";
             drawCanvasFromCsv(json.file_prefix, payload.end_time, payload.direction, payload.sa_num);
@@ -124,14 +133,43 @@ function handleSaveExcel(e) {
         sa_num: document.getElementById("sa_num").value.trim(),
         end_time: document.getElementById("end_time").value.trim(),
     };
+
     fetch("/save_excel_csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     })
-    .then(res => res.json())
-    .then(json => alert("✅ CSV 파일 저장 완료!\n경로: " + json.path))
-    .catch(err => alert("❌ CSV 파일 저장 중 오류가 발생했습니다."));
+    .then(res => {
+        if (!res.ok) {
+            throw new Error("서버에서 파일 생성에 실패했습니다.");
+        }
+        // 서버 응답 헤더에서 파일 이름을 가져옴
+        const disposition = res.headers.get('Content-Disposition');
+        let filename = 'edited_data.csv'; // 기본 파일명
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) { 
+                filename = decodeURI(matches[1].replace(/['"]/g, ''));
+            }
+        }
+        return res.blob().then(blob => ({ blob, filename }));
+    })
+    .then(({ blob, filename }) => {
+        // 받은 파일 데이터(blob)를 이용해 다운로드 링크를 생성하고 클릭
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename; // 응답 헤더에서 받은 파일명으로 설정
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        window.URL.revokeObjectURL(url); // 임시 URL 해제
+        a.remove();
+    })
+    .catch(err => alert("❌ CSV 파일 다운로드 중 오류가 발생했습니다: " + err.message));
 }
 
 function handleSaveCanvas() {

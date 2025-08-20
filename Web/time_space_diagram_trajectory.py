@@ -26,6 +26,29 @@ def recalculate_trajectory(start_time, start_pos, intersections_df, green_window
     current_time = float(start_time)
     current_pos = float(start_pos)
     path.append({'time': current_time, 'position': current_pos})
+
+    # 시작 위치가 교차로인지 확인 (부동소수점 오차 감안)
+    starting_intersection_df = intersections_df[abs(intersections_df['cumulative_distance'] - current_pos) < 1e-6]
+    if not starting_intersection_df.empty:
+        intersection_name = starting_intersection_df.iloc[0]['intersection_name']
+        green_windows = green_windows_df[green_windows_df['intersection_name'] == intersection_name]
+
+        can_start = any(
+            (current_time >= row['green_start_time'] - 1e-6) and (current_time <= row['green_end_time'] + 1e-6)
+            for _, row in green_windows.iterrows()
+        )
+
+        if not can_start:
+            # 출발할 수 없다면, 가장 가까운 미래의 녹색 신호까지 대기
+            future_greens = green_windows[green_windows['green_start_time'] >= current_time].sort_values('green_start_time')
+            if not future_greens.empty:
+                next_green_start = future_greens.iloc[0]['green_start_time']
+
+                wait_points = np.linspace(current_time, next_green_start, num=int(next_green_start - current_time) + 2)
+                for t in wait_points:
+                    path.append({'time': t, 'position': current_pos})
+
+                current_time = next_green_start # 대기 후 현재 시간 업데이트
     
     # DataFrame을 순회를 위해 dictionary 리스트로 변환
     intersections = intersections_df.to_dict('records')
@@ -163,11 +186,10 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
     # 궤적 생성 로직 (JavaScript 로직과 통합)
     if with_trajectory:
         all_trajectories = []
-        
-        # 53초 간격으로 차량 생성 (기존 로직 유지)
-        for start_time in range(1, end_time + 1, 100):
-            if filtered.empty: continue
-            
+
+        # 0초에 궤적 하나만 생성
+        start_time = 0
+        if not filtered.empty:
             # 첫 번째 교차로의 위치를 시작 위치로 설정
             start_pos = filtered.iloc[0]["cumulative_distance"]
             
@@ -176,10 +198,27 @@ def draw_time_space_diagram(direction, filename, sa_num=None, end_time=1800, wit
             
             for point in vehicle_path:
                 all_trajectories.append({
-                    "vehicle_id": start_time,
+                    "vehicle_id": f"manual_{start_time}", # ID를 수동 생성과 유사하게 변경
                     "time": round(point['time'], 2),
                     "position": round(point['position'], 2)
                 })
+        
+        # # 100초 간격으로 차량 생성 (기존 로직 유지)
+        # for start_time in range(1, end_time + 1, 100):
+        #     if filtered.empty: continue
+            
+        #     # 첫 번째 교차로의 위치를 시작 위치로 설정
+        #     start_pos = filtered.iloc[0]["cumulative_distance"]
+            
+        #     # JS 로직을 이식한 함수를 호출하여 궤적 계산
+        #     vehicle_path = recalculate_trajectory(start_time, start_pos, filtered, green_df)
+            
+        #     for point in vehicle_path:
+        #         all_trajectories.append({
+        #             "vehicle_id": start_time,
+        #             "time": round(point['time'], 2),
+        #             "position": round(point['position'], 2)
+        #         })
 
         if all_trajectories:
             traj_df = pd.DataFrame(all_trajectories)

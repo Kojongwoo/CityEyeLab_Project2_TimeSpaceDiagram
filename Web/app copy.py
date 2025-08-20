@@ -5,7 +5,7 @@ from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
 # 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
-# js 수정 후 npx webpack --mode=development
+# 프론트: 수정 후 npx webpack --mode=development
 # 코드 수정할 경우, Dockerbuild를 통해 컨테이너를 재빌드해야 합니다. docker build -t timespace-diag-app .
 # docker 빌드 후 실행 : docker run -p 8000:8000 timespace-diag-app
 
@@ -82,19 +82,34 @@ def generate():
         else:
             end_time = 1800
 
-        df = preprocess_df(data)
-
         import time_space_diagram_trajectory as tsd
+        df = preprocess_df(data)
         tsd.df = df
 
+        # ▼▼▼ [추가] 필터링된 데이터에서 실제 사용된 SA 번호 목록을 추출합니다. ▼▼▼
+        filtered_all = df[df["direction"] == direction].copy()
+        if sa_num is not None:
+            sa_range = 2
+            sa_min, sa_max = sa_num - sa_range, sa_num + sa_range
+            filtered = filtered_all[(filtered_all["SA_num"] >= sa_min) & (filtered_all["SA_num"] <= sa_max)]
+            used_sa_nums = sorted([int(n) for n in filtered["SA_num"].unique()])
+        else:
+            used_sa_nums = [] # sa_num 입력이 없을 경우 빈 리스트       
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
         sa_str = f"SA{sa_num}" if sa_num is not None else 'all'
         output_name = f"diagram_{direction}_{sa_str}_{timestamp}.png"
         
         tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
         
         image_url = f"/static/output/{output_name}"
-        return jsonify({"image_url": image_url, "file_prefix": output_name.replace('.png','')})
+        return jsonify({
+            "image_url": image_url, 
+            "file_prefix": output_name.replace('.png',''), 
+            "used_sa_nums": used_sa_nums
+        })
+    
     except Exception as e:
         print(f"❌ 시공도 생성 중 오류 발생: {e}")
         return jsonify({"error": f"시공도 생성 실패. 오류: {str(e)}"}), 500
@@ -171,6 +186,46 @@ def generate_json():
 #     df.to_csv(full_path, index=False, encoding="utf-8-sig")
 
 #     return jsonify({"path": full_path})
+
+@app.route('/save_excel_csv', methods=['POST'])
+def save_excel_csv(): # 함수 이름을 좀 더 명확하게 변경
+    try:
+        content = request.get_json()
+        rows = content["rows"]
+        headers = content.get("headers")
+        direction = content.get("direction", "방향미지정")
+        sa_num = content.get("sa_num", "전체")
+        end_time = content.get("end_time", "시간미지정")
+
+        df = pd.DataFrame(rows, columns=headers)
+        df = df.fillna("")
+
+        now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        sa_str = f"SA{sa_num}" if sa_num else "전체"
+        filename = f"수정_{direction}_{sa_str}_{end_time}초_{now}.csv"
+        
+        # --- ▼▼▼ 핵심 수정 부분 ▼▼▼ ---
+        
+        # 1. 데이터를 파일이 아닌 메모리 내의 텍스트 버퍼에 저장
+        buffer = io.StringIO()
+        df.to_csv(buffer, index=False, encoding="utf-8-sig")
+        
+        # 2. 버퍼의 내용을 BytesIO로 감싸서 send_file로 전달 준비
+        mem = io.BytesIO()
+        mem.write(buffer.getvalue().encode('utf-8-sig'))
+        mem.seek(0) # 버퍼의 커서를 맨 앞으로 이동
+        
+        # 3. send_file을 사용해 브라우저에 파일 다운로드 응답을 보냄
+        return send_file(
+            mem,
+            as_attachment=True,      # 첨부 파일로 처리하도록 설정
+            download_name=filename,  # 다운로드될 파일의 이름 지정
+            mimetype='text/csv'      # 파일 형식을 CSV로 지정
+        )
+
+    except Exception as e:
+        print(f"❌ CSV 생성/전송 중 오류 발생: {e}")
+        return jsonify({"error": f"CSV 생성 실패. 오류: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)

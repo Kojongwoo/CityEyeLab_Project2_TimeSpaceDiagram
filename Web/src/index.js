@@ -101,8 +101,17 @@ function handleFormSubmit(e) {
         body: JSON.stringify(payload)
     })
     .then(res => res.ok ? res.json() : res.json().then(err => { throw new Error(err.error) }))
+
     .then(json => {
         document.getElementById("loading").style.display = "none";
+
+        const feedbackEl = document.getElementById("saNumFeedback");
+        if (json.used_sa_nums && json.used_sa_nums.length > 0) {
+            feedbackEl.innerHTML = `<strong>📊 분석에 사용된 SA:</strong> ${json.used_sa_nums.join(', ')}`;
+        } else {
+            feedbackEl.innerHTML = ""; // 내용 초기화
+        }
+
         if (json.file_prefix) {
             document.getElementById("canvasSection").style.display = "block";
             drawCanvasFromCsv(json.file_prefix, payload.end_time, payload.direction, payload.sa_num);
@@ -483,6 +492,35 @@ function recalculateTrajectory(startTime, startPosition) {
     let currentTime = startTime;
     let currentPos = startPosition;
     newPath.push({ time: currentTime, position: currentPos });
+
+    // ▼▼▼ [추가] 출발 지점 신호 확인 로직 ▼▼▼
+    const startingIntersection = intersectionData.find(i => Math.abs(i.cumulative_distance - currentPos) < 1e-6);
+    if (startingIntersection) {
+        const greenWindowsForStart = globalGreenWindows.filter(
+            w => w.intersection_name === startingIntersection.intersection_name
+        );
+
+        let canStart = greenWindowsForStart.some(
+            w => currentTime >= w.green_start_time - 1e-6 && currentTime <= w.green_end_time + 1e-6
+        );
+
+        if (!canStart) {
+            // 출발할 수 없다면, 가장 가까운 미래의 녹색 신호까지 대기
+            const futureGreens = greenWindowsForStart
+                .filter(w => w.green_start_time >= currentTime)
+                .sort((a, b) => a.green_start_time - b.green_start_time);
+
+            if (futureGreens.length > 0) {
+                const nextGreenStart = futureGreens[0].green_start_time;
+                const waitPoints = Array.from({length: Math.round(nextGreenStart - currentTime) + 1}, (_, j) => currentTime + j);
+                for(const t of waitPoints) {
+                    if (t <= nextGreenStart) newPath.push({ time: t, position: currentPos });
+                }
+                currentTime = nextGreenStart; // 대기 후 현재 시간 업데이트
+            }
+        }
+    }
+
     let startIntersectionIndex = intersectionData.findIndex(i => i.cumulative_distance >= currentPos);
     if (startIntersectionIndex === -1) startIntersectionIndex = 0;
     if (startIntersectionIndex > 0) {

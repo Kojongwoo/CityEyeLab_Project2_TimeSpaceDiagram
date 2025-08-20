@@ -5,7 +5,7 @@ from time_space_diagram_trajectory import draw_time_space_diagram
 import datetime
 
 # 경로 -> CityeyeLab_Intern/time_space_diagram/Web/app.py 로 실행할것 cd time_space_diagram/web
-# js 수정 후 npx webpack --mode=development
+# 프론트: 수정 후 npx webpack --mode=development
 # 코드 수정할 경우, Dockerbuild를 통해 컨테이너를 재빌드해야 합니다. docker build -t timespace-diag-app .
 # docker 빌드 후 실행 : docker run -p 8000:8000 timespace-diag-app
 
@@ -82,19 +82,34 @@ def generate():
         else:
             end_time = 1800
 
-        df = preprocess_df(data)
-
         import time_space_diagram_trajectory as tsd
+        df = preprocess_df(data)
         tsd.df = df
 
+        # ▼▼▼ [추가] 필터링된 데이터에서 실제 사용된 SA 번호 목록을 추출합니다. ▼▼▼
+        filtered_all = df[df["direction"] == direction].copy()
+        if sa_num is not None:
+            sa_range = 2
+            sa_min, sa_max = sa_num - sa_range, sa_num + sa_range
+            filtered = filtered_all[(filtered_all["SA_num"] >= sa_min) & (filtered_all["SA_num"] <= sa_max)]
+            used_sa_nums = sorted([int(n) for n in filtered["SA_num"].unique()])
+        else:
+            used_sa_nums = [] # sa_num 입력이 없을 경우 빈 리스트       
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
         sa_str = f"SA{sa_num}" if sa_num is not None else 'all'
         output_name = f"diagram_{direction}_{sa_str}_{timestamp}.png"
         
         tsd.draw_time_space_diagram(direction, output_name, sa_num, end_time, with_trajectory=True)
         
         image_url = f"/static/output/{output_name}"
-        return jsonify({"image_url": image_url, "file_prefix": output_name.replace('.png','')})
+        return jsonify({
+            "image_url": image_url, 
+            "file_prefix": output_name.replace('.png',''), 
+            "used_sa_nums": used_sa_nums
+        })
+    
     except Exception as e:
         print(f"❌ 시공도 생성 중 오류 발생: {e}")
         return jsonify({"error": f"시공도 생성 실패. 오류: {str(e)}"}), 500
